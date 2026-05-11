@@ -116,3 +116,80 @@ Citations should be generated from chunk metadata, not inferred by the model.
 5. **Add evaluation:** create golden questions for plot, themes, characters, poems, author biographies, and quote lookup; measure answer faithfulness and citation accuracy.
 6. **Add guardrails:** handle empty retrieval, ambiguous questions, copyrighted content, invalid citations, prompt injection in documents, and unsupported claims.
 7. **Ship iteratively:** start with a small public-domain corpus, add monitoring and feedback, then expand to licensed sources and advanced filters.
+
+## MVP implementation in this repository
+
+This repository now contains a runnable Python MVP for the design above. The initial stack choices are:
+
+- **API service:** FastAPI (`litbot/api/main.py`).
+- **LLM API:** OpenAI GPT chat completions via the official `openai` Python SDK.
+- **Embeddings:** OpenAI embeddings via the official `openai` Python SDK.
+- **Vector database:** PostgreSQL with the `pgvector` extension and hybrid full-text search.
+- **Document parsing:** Plain text/Markdown, HTML with Beautiful Soup, and PDF with pdfplumber.
+- **Chunk orchestration:** A lightweight custom chunker that preserves paragraph/stanza boundaries.
+- **Evaluation:** A minimal JSONL scorer for answer coverage and citation presence, intended as the first step before adding RAGAS/DeepEval or human review.
+- **Observability:** Structured JSON logs with trace IDs and retrieval/generation metrics hooks.
+
+### Local setup
+
+1. Create an environment file:
+
+   ```bash
+   cp .env.example .env
+   # edit OPENAI_API_KEY if you plan to ingest or answer questions
+   ```
+
+2. Start PostgreSQL with pgvector:
+
+   ```bash
+   docker compose up -d postgres
+   ```
+
+   The initial schema is mounted from `migrations/001_init.sql`.
+
+3. Install the package:
+
+   ```bash
+   python -m pip install -e '.[dev]'
+   ```
+
+4. Ingest the example public-domain excerpt:
+
+   ```bash
+   litbot ingest examples/frankenstein_excerpt.txt
+   ```
+
+5. Run the API:
+
+   ```bash
+   litbot serve --port 8000
+   ```
+
+6. Ask a grounded question:
+
+   ```bash
+   curl -s http://localhost:8000/chat \
+     -H 'content-type: application/json' \
+     -d '{"question":"How does Victor describe the creature when it comes to life?","filters":{"work":"Frankenstein"}}'
+   ```
+
+### Project layout
+
+- `litbot/ingestion/` parses approved files, normalizes text, chunks documents, calls OpenAI embeddings, and stores vectors in PostgreSQL.
+- `litbot/retrieval/` embeds queries and performs hybrid pgvector + PostgreSQL full-text retrieval with metadata filters.
+- `litbot/generation/` builds grounded prompts, calls the configured OpenAI GPT model, validates citation labels, and formats references from stored metadata.
+- `litbot/api/` exposes `/health` and `/chat`.
+- `litbot/evaluation/` provides a minimal evaluator for JSONL exports.
+- `migrations/` contains the PostgreSQL/pgvector schema.
+- `examples/` contains a tiny public-domain sample document and metadata sidecar.
+
+### Configuration
+
+Key environment variables are shown in `.env.example`:
+
+- `OPENAI_API_KEY`: required for ingestion and answer generation.
+- `LITBOT_DATABASE_URL`: PostgreSQL connection string.
+- `LITBOT_LLM_MODEL`: configurable OpenAI GPT model for generation.
+- `LITBOT_EMBEDDING_MODEL`: configurable OpenAI embedding model.
+- `LITBOT_EMBEDDING_DIMENSIONS`: must match the `vector(...)` dimension in `migrations/001_init.sql`.
+- `LITBOT_TOP_K`: default number of retrieved chunks.
