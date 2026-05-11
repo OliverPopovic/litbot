@@ -1,0 +1,24 @@
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Runtime settings loaded from environment variables."""
+
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="LITBOT_", extra="ignore")
+
+    database_url: str = "postgresql://litbot:litbot@localhost:5432/litbot"
+    llm_model: str = "gpt-4.1-mini"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+    top_k: int = 8
+    prompt_version: str = "litbot-grounded-v1"
+    request_timeout_seconds: float = 60.0
+    openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
