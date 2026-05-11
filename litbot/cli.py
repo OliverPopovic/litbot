@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from litbot.api.main import app as fastapi_app
 from litbot.config import get_settings
-from litbot.db import get_connection
+from litbot.db import close_pool, get_connection
 from litbot.evaluation.golden import load_golden_questions, score_answers
 from litbot.generation.service import GenerationService
 from litbot.ingestion.store import IngestionService
@@ -43,8 +43,11 @@ def ingest(
 
     settings = get_settings()
     model_client = OpenAIModelClient(settings)
-    with get_connection(settings) as conn:
-        chunks = IngestionService(conn, model_client).ingest_path(path, metadata)
+    try:
+        with get_connection(settings) as conn:
+            chunks = IngestionService(conn, model_client).ingest_path(path, metadata)
+    finally:
+        close_pool()
     typer.echo(f"Ingested {len(chunks)} chunks from {path}")
 
 
@@ -56,8 +59,11 @@ def ask(
 
     settings = get_settings()
     model_client = OpenAIModelClient(settings)
-    with get_connection(settings) as conn:
-        chunks = RetrievalService(conn, model_client, settings).retrieve(question)
+    try:
+        with get_connection(settings) as conn:
+            chunks = RetrievalService(conn, model_client, settings).retrieve(question)
+    finally:
+        close_pool()
     response = GenerationService(model_client, settings).answer(question, chunks)
     typer.echo(response.model_dump_json(indent=2))
 

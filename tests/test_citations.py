@@ -1,6 +1,10 @@
 import pytest
 
-from litbot.generation.citations import format_reference, validate_and_format_citations
+from litbot.generation.citations import (
+    format_reference,
+    validate_and_format_citations,
+    validate_and_format_labels,
+)
 from litbot.models import RetrievedChunk
 
 
@@ -26,6 +30,13 @@ def test_validate_and_format_citations_from_answer() -> None:
 def test_validate_and_format_citations_rejects_unretrieved_label() -> None:
     with pytest.raises(ValueError, match="Invalid citation labels"):
         validate_and_format_citations("Unsupported citation [S2].", [make_chunk()])
+
+
+def test_validate_and_format_labels_from_citation_map_sources() -> None:
+    citations = validate_and_format_labels({"S1"}, [make_chunk()])
+
+    assert len(citations) == 1
+    assert citations[0].label == "S1"
 
 
 def test_format_reference_falls_back_to_source_id() -> None:

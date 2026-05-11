@@ -26,6 +26,15 @@ def get_pool(settings: Settings | None = None) -> ConnectionPool:
     return _pool
 
 
+def close_pool() -> None:
+    """Close the process-wide PostgreSQL connection pool, if it was opened."""
+
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None
+
+
 @contextmanager
 def get_connection(settings: Settings | None = None) -> Iterator[Connection]:
     pool = get_pool(settings)

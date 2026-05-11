@@ -12,13 +12,19 @@ def validate_and_format_citations(answer: str, chunks: list[RetrievedChunk]) -> 
     for match in CITATION_RE.findall(answer):
         labels_in_answer.update(label.strip() for label in match.split(","))
 
+    return validate_and_format_labels(labels_in_answer, chunks)
+
+
+def validate_and_format_labels(labels: set[str], chunks: list[RetrievedChunk]) -> list[Citation]:
+    """Validate citation labels and format metadata-backed references."""
+
     by_label = {chunk.label: chunk for chunk in chunks}
-    invalid = labels_in_answer - set(by_label)
+    invalid = labels - set(by_label)
     if invalid:
         raise ValueError(f"Invalid citation labels: {sorted(invalid)}")
 
     citations: list[Citation] = []
-    for label in sorted(labels_in_answer, key=lambda value: int(value[1:])):
+    for label in sorted(labels, key=lambda value: int(value[1:])):
         chunk = by_label[label]
         citations.append(
             Citation(
