@@ -37,7 +37,28 @@ def _load_metadata(path: Path, metadata_path: Path | None) -> DocumentMetadata:
     if not candidate.exists():
         raise FileNotFoundError(f"Metadata sidecar not found: {candidate}")
     data = json.loads(candidate.read_text(encoding="utf-8"))
+    _validate_metadata(data, candidate)
     return DocumentMetadata(**data)
+
+
+def _validate_metadata(data: dict[str, object], path: Path) -> None:
+    required = {
+        "source_id",
+        "title",
+        "author",
+        "publication_year",
+        "genre",
+        "language",
+        "license",
+        "uri",
+        "version",
+    }
+    missing = sorted(field for field in required if not data.get(field))
+    metadata = data.get("metadata")
+    if not isinstance(metadata, dict) or not metadata.get("work"):
+        missing.append("metadata.work")
+    if missing:
+        raise ValueError(f"Metadata sidecar {path} is missing required fields: {missing}")
 
 
 def _normalize_text(text: str) -> str:

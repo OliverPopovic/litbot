@@ -4,7 +4,7 @@ import structlog
 from fastapi import FastAPI, Header
 
 from litbot.config import get_settings
-from litbot.db import get_connection
+from litbot.db import close_pool, get_connection
 from litbot.generation.service import GenerationService
 from litbot.models import ChatRequest, ChatResponse
 from litbot.observability.logging import configure_logging
@@ -14,6 +14,11 @@ from litbot.retrieval.service import RetrievalService
 configure_logging()
 logger = structlog.get_logger(__name__)
 app = FastAPI(title="LitBot Literary RAG API", version="0.1.0")
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    close_pool()
 
 
 @app.get("/health")
