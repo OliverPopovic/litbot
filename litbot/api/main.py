@@ -1,4 +1,6 @@
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Header
@@ -12,12 +14,18 @@ from litbot.retrieval.service import RetrievalService
 
 configure_logging()
 logger = structlog.get_logger(__name__)
-app = FastAPI(title="LitBot Literary RAG API", version="0.1.0")
 
 
-@app.on_event("shutdown")
-def shutdown() -> None:
-    close_pool()
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    try:
+        yield
+    finally:
+        # Close the process-wide psycopg pool after FastAPI has finished serving requests.
+        close_pool()
+
+
+app = FastAPI(title="LitBot Literary RAG API", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/health")

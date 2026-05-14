@@ -2,8 +2,26 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from litbot.ingestion.parsers import parse_document
+from litbot.models import DocumentMetadata
+
+
+def test_document_metadata_requires_work_metadata() -> None:
+    with pytest.raises(ValidationError, match="metadata.work"):
+        DocumentMetadata(
+            source_id="source",
+            title="Source",
+            author="Author",
+            publication_year=1818,
+            genre="novel",
+            language="en",
+            license="Public domain",
+            uri="https://example.test/source",
+            version="1",
+            metadata={},
+        )
 
 
 def test_parse_document_requires_corpus_metadata_fields(tmp_path: Path) -> None:
@@ -21,7 +39,7 @@ def test_parse_document_requires_corpus_metadata_fields(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="metadata.work"):
+    with pytest.raises(ValueError, match=r"Metadata sidecar .*source\.txt\.json.*metadata.work"):
         parse_document(source)
 
 

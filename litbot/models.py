@@ -1,53 +1,72 @@
-import json
-from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
-
-class SerializableDataclass:
-    def model_dump(self) -> dict[str, Any]:
-        return asdict(self)
-
-    def model_dump_json(self, indent: int | None = None) -> str:
-        return json.dumps(self.model_dump(), default=str, indent=indent)
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-@dataclass
-class DocumentMetadata(SerializableDataclass):
+class LitBotModel(BaseModel):
+    """Shared Pydantic defaults for API and internal transfer objects."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class DocumentMetadata(LitBotModel):
     source_id: str
     title: str
     license: str
-    author: str | None = None
+    author: str
     translator: str | None = None
     editor: str | None = None
-    publication_year: int | None = None
+    publication_year: int
     edition: str | None = None
-    genre: str | None = None
+    genre: str
     language: str = "en"
-    uri: str | None = None
+    uri: str
     version: str = "1"
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator(
+        "source_id",
+        "title",
+        "license",
+        "author",
+        "genre",
+        "language",
+        "uri",
+        "version",
+    )
+    @classmethod
+    def _require_non_blank_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
+
+    @field_validator("metadata")
+    @classmethod
+    def _require_work_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        # The corpus stores human citation context under metadata.work; keep that invariant here
+        # instead of duplicating sidecar validation in the parser.
+        if not value.get("work"):
+            raise ValueError("metadata.work is required")
+        return value
 
 
-@dataclass
-class ParsedDocument(SerializableDataclass):
+class ParsedDocument(LitBotModel):
     metadata: DocumentMetadata
     text: str
 
 
-@dataclass
-class TextChunk(SerializableDataclass):
+class TextChunk(LitBotModel):
     chunk_id: str
     source_id: str
     chunk_index: int
     text: str
     token_count: int
     chunk_hash: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-@dataclass
-class RetrievedChunk(SerializableDataclass):
+class RetrievedChunk(LitBotModel):
     label: str
     chunk_id: str
     source_id: str
@@ -59,28 +78,25 @@ class RetrievedChunk(SerializableDataclass):
     lexical_score: float | None = None
 
 
-@dataclass
-class ChatRequest(SerializableDataclass):
+class ChatRequest(LitBotModel):
     question: str
-    filters: dict[str, Any] = field(default_factory=dict)
+    filters: dict[str, Any] = Field(default_factory=dict)
     top_k: int | None = None
 
 
-@dataclass
-class Citation(SerializableDataclass):
+class Citation(LitBotModel):
     label: str
     source_id: str
     chunk_id: str
     reference: str
 
 
-@dataclass
-class ChatResponse(SerializableDataclass):
+class ChatResponse(LitBotModel):
     answer: str
     citations: list[Citation]
     retrieved_chunks: list[RetrievedChunk]
     prompt_version: str
     trace_id: str
-    citation_map: list[dict[str, Any]] = field(default_factory=list)
-    unsupported: list[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    citation_map: list[dict[str, Any]] = Field(default_factory=list)
+    unsupported: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

@@ -1,10 +1,13 @@
 import hashlib
 import re
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from litbot.models import DocumentMetadata, TextChunk
 
 TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 PARAGRAPH_RE = re.compile(r"\n\s*\n")
+POETRY_LINES_PER_UNIT = 8
 
 
 def estimate_tokens(text: str) -> int:
@@ -21,73 +24,57 @@ def chunk_document(
 ) -> list[TextChunk]:
     """Split text into structure-aware chunks while preserving paragraph and poetry breaks."""
 
-    units = _split_units(text, metadata.genre)
-    chunks: list[TextChunk] = []
-    current: list[str] = []
-    current_tokens = 0
-
-    for unit in units:
-        unit_tokens = estimate_tokens(unit)
-        if current and current_tokens + unit_tokens > target_tokens:
-            chunks.append(_make_chunk(chunks, current, metadata))
-            current = _overlap_units(current, overlap_tokens)
-            current_tokens = estimate_tokens("\n\n".join(current))
-        current.append(unit)
-        current_tokens += unit_tokens
-
-    if current:
-        chunks.append(_make_chunk(chunks, current, metadata))
-    return chunks
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=target_tokens,
+        chunk_overlap=overlap_tokens,
+        length_function=estimate_tokens,
+        separators=["\n\n", "\n", " ", ""],
+    )
+    prepared_text = _prepare_text_for_splitting(text, metadata.genre)
+    documents = splitter.create_documents([prepared_text], metadatas=[_chunk_metadata(metadata)])
+    return [
+        _make_chunk(document.page_content, index, metadata, dict(document.metadata))
+        for index, document in enumerate(documents)
+        if document.page_content.strip()
+    ]
 
 
-def _split_units(text: str, genre: str | None) -> list[str]:
+def _prepare_text_for_splitting(text: str, genre: str | None) -> str:
+    if not genre or genre.lower() not in {"poetry", "poem"}:
+        return text
+
+    # LangChain handles chunk size and overlap; this small pre-pass gives poems stanza-like
+    # boundaries so line structure remains visible in retrieved evidence.
+    stanza_units: list[str] = []
     raw_units = [unit.strip() for unit in PARAGRAPH_RE.split(text) if unit.strip()]
-    if genre and genre.lower() in {"poetry", "poem"}:
-        stanza_units: list[str] = []
-        for unit in raw_units:
-            lines = [line for line in unit.splitlines() if line.strip()]
-            for start in range(0, len(lines), 8):
-                stanza_units.append("\n".join(lines[start : start + 8]))
-        return stanza_units
-    return raw_units
+    for unit in raw_units:
+        lines = [line for line in unit.splitlines() if line.strip()]
+        for start in range(0, len(lines), POETRY_LINES_PER_UNIT):
+            stanza_units.append("\n".join(lines[start : start + POETRY_LINES_PER_UNIT]))
+    return "\n\n".join(stanza_units)
 
 
-def _overlap_units(units: list[str], overlap_tokens: int) -> list[str]:
-    selected: list[str] = []
-    total = 0
-    for unit in reversed(units):
-        total += estimate_tokens(unit)
-        selected.insert(0, unit)
-        if total >= overlap_tokens:
-            break
-    return selected
+def _chunk_metadata(metadata: DocumentMetadata) -> dict[str, object]:
+    chunk_metadata = dict(metadata.metadata)
+    chunk_metadata.update(
+        metadata.model_dump(
+            exclude={
+                "metadata",
+            }
+        )
+    )
+    return chunk_metadata
 
 
 def _make_chunk(
-    existing: list[TextChunk],
-    units: list[str],
+    text: str,
+    chunk_index: int,
     metadata: DocumentMetadata,
+    chunk_metadata: dict[str, object],
 ) -> TextChunk:
-    text = "\n\n".join(units).strip()
+    text = text.strip()
     chunk_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    chunk_index = len(existing)
     chunk_id = f"{metadata.source_id}:{chunk_index:05d}:{chunk_hash[:10]}"
-    chunk_metadata = dict(metadata.metadata)
-    chunk_metadata.update(
-        {
-            "title": metadata.title,
-            "author": metadata.author,
-            "translator": metadata.translator,
-            "editor": metadata.editor,
-            "publication_year": metadata.publication_year,
-            "edition": metadata.edition,
-            "genre": metadata.genre,
-            "language": metadata.language,
-            "license": metadata.license,
-            "uri": metadata.uri,
-            "version": metadata.version,
-        }
-    )
     return TextChunk(
         chunk_id=chunk_id,
         source_id=metadata.source_id,

@@ -40,9 +40,3 @@ def get_connection(settings: Settings | None = None) -> Iterator[Connection]:
     pool = get_pool(settings)
     with pool.connection() as conn:
         yield conn
-
-
-def vector_literal(values: list[float]) -> str:
-    """Serialize floats for pgvector's text input format."""
-
-    return "[" + ",".join(f"{value:.8f}" for value in values) + "]"

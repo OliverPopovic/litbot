@@ -30,7 +30,7 @@ class RetrievalService:
         filters: dict[str, Any] | None = None,
         top_k: int | None = None,
     ) -> list[RetrievedChunk]:
-        filters = filters or {}
+        filters = _normalize_filters(filters)
         limit = top_k or self.settings.top_k
         vector_rows = self._vector_search(question, filters, limit * 3)
         lexical_rows = self._lexical_search(question, filters, limit * 3)
@@ -59,6 +59,8 @@ class RetrievalService:
         ensure_lexical_index(self.conn)
         where, params = _metadata_where_clause(filters)
         prefix = f"AND {where}" if where else ""
+        # LangChain PGVector owns the storage tables; this query adds a lexical ranking pass over
+        # the same collection so exact names and phrases can compete with semantic matches.
         rows = self.conn.execute(
             f"""
             SELECT e.document, e.cmetadata,
@@ -129,11 +131,16 @@ class RetrievalService:
         return ranked[:limit]
 
 
+def _normalize_filters(filters: dict[str, Any] | None) -> dict[str, Any]:
+    return {key: value for key, value in (filters or {}).items() if value is not None}
+
+
 def _to_pgvector_filter(filters: dict[str, Any]) -> dict[str, Any] | None:
+    """Translate normalized user filters into LangChain PGVector's metadata filter dialect."""
+
     conditions = []
     for key, value in filters.items():
-        if value is not None:
-            conditions.append({key: {"$eq": value}})
+        conditions.append({key: {"$eq": value}})
     if not conditions:
         return None
     if len(conditions) == 1:
@@ -142,11 +149,11 @@ def _to_pgvector_filter(filters: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _metadata_where_clause(filters: dict[str, Any]) -> tuple[str, list[Any]]:
+    """Translate the same normalized filters into SQL predicates for the lexical pass."""
+
     clauses: list[str] = []
     params: list[Any] = []
     for key, value in filters.items():
-        if value is None:
-            continue
         if isinstance(value, (dict, list)):
             clauses.append("e.cmetadata @> %s::jsonb")
             params.append(json.dumps({key: value}))

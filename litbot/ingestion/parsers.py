@@ -1,8 +1,8 @@
-import json
 from pathlib import Path
 
 import pdfplumber
 from bs4 import BeautifulSoup
+from pydantic import ValidationError
 
 from litbot.models import DocumentMetadata, ParsedDocument
 
@@ -15,6 +15,7 @@ def parse_document(path: Path, metadata_path: Path | None = None) -> ParsedDocum
     if suffix in {".txt", ".md"}:
         text = path.read_text(encoding="utf-8")
     elif suffix in {".html", ".htm"}:
+        # Strip site chrome before text extraction so retrieval focuses on the work itself.
         soup = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
         for element in soup(["script", "style", "nav", "footer"]):
             element.decompose()
@@ -25,6 +26,7 @@ def parse_document(path: Path, metadata_path: Path | None = None) -> ParsedDocum
             for index, page in enumerate(pdf.pages, start=1):
                 page_text = page.extract_text() or ""
                 if page_text.strip():
+                    # Preserve a lightweight page marker for future citation/reference display.
                     pages.append(f"\n\n[page {index}]\n{page_text}")
         text = "\n".join(pages)
     else:
@@ -36,29 +38,15 @@ def _load_metadata(path: Path, metadata_path: Path | None) -> DocumentMetadata:
     candidate = metadata_path or path.with_suffix(path.suffix + ".json")
     if not candidate.exists():
         raise FileNotFoundError(f"Metadata sidecar not found: {candidate}")
-    data = json.loads(candidate.read_text(encoding="utf-8"))
-    _validate_metadata(data, candidate)
-    return DocumentMetadata(**data)
-
-
-def _validate_metadata(data: dict[str, object], path: Path) -> None:
-    required = {
-        "source_id",
-        "title",
-        "author",
-        "publication_year",
-        "genre",
-        "language",
-        "license",
-        "uri",
-        "version",
-    }
-    missing = sorted(field for field in required if not data.get(field))
-    metadata = data.get("metadata")
-    if not isinstance(metadata, dict) or not metadata.get("work"):
-        missing.append("metadata.work")
-    if missing:
-        raise ValueError(f"Metadata sidecar {path} is missing required fields: {missing}")
+    try:
+        # Pydantic owns the sidecar schema; the parser only locates the file and reports context.
+        return DocumentMetadata.model_validate_json(candidate.read_text(encoding="utf-8"))
+    except ValidationError as exc:
+        errors = [
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors()
+        ]
+        raise ValueError(f"Metadata sidecar {candidate} is invalid: {errors}") from exc
 
 
 def _normalize_text(text: str) -> str:
