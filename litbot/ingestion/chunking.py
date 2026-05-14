@@ -74,7 +74,19 @@ def _make_chunk(
     chunk_id = f"{metadata.source_id}:{chunk_index:05d}:{chunk_hash[:10]}"
     chunk_metadata = dict(metadata.metadata)
     chunk_metadata.update(
-        {"title": metadata.title, "author": metadata.author, "license": metadata.license}
+        {
+            "title": metadata.title,
+            "author": metadata.author,
+            "translator": metadata.translator,
+            "editor": metadata.editor,
+            "publication_year": metadata.publication_year,
+            "edition": metadata.edition,
+            "genre": metadata.genre,
+            "language": metadata.language,
+            "license": metadata.license,
+            "uri": metadata.uri,
+            "version": metadata.version,
+        }
     )
     return TextChunk(
         chunk_id=chunk_id,

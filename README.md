@@ -1,195 +1,181 @@
-# Literary RAG Chatbot Design
+# LitBot
 
-## Goal and scope
+LitBot is a small literary RAG chatbot. It ingests approved literary texts, chunks them with
+stable citation metadata, stores them in PostgreSQL through LangChain PGVector, and answers
+questions with grounded citations.
 
-Build an API-based GPT retrieval-augmented generation (RAG) chatbot that answers user questions about literary works, authors, themes, characters, poems, historical context, and biographies. The assistant should prioritize grounded responses from an approved corpus, clearly cite sources, and state uncertainty when the corpus does not support an answer.
+The current implementation is intentionally compact: it is an API and CLI around a local corpus,
+not a finished product with authentication, user accounts, UI, advanced reranking, or production
+monitoring.
 
-## High-level architecture
+## What It Does
 
-1. **Client application** sends a user question and optional filters such as author, work, genre, school course, language, or date range.
-2. **Chat API service** authenticates the request, normalizes the question, applies safety and content policies, and coordinates retrieval and generation.
-3. **Retriever** embeds the question, searches a vector database, optionally runs metadata filters, and reranks candidate chunks.
-4. **Prompt builder** formats the user question, retrieved context, citation metadata, and response instructions for the LLM.
-5. **LLM generation** produces a grounded answer, citing the retrieved chunks and refusing or qualifying unsupported claims.
-6. **Citation post-processor** validates cited chunk identifiers, formats bibliographic citations, and attaches source links or page references.
-7. **Observability layer** logs latency, retrieval scores, prompt versions, errors, and user feedback without storing sensitive user data unnecessarily.
+- Parses `.txt`, `.md`, `.html`, and `.pdf` files with JSON metadata sidecars.
+- Splits documents into stable chunks while preserving paragraph and poetry boundaries.
+- Stores chunks as LangChain `Document` objects in a PGVector collection.
+- Retrieves with hybrid search:
+  - LangChain PGVector similarity search for semantic matching.
+  - PostgreSQL full-text search for names, quotes, and exact phrasing.
+- Sends retrieved chunks to an OpenAI chat model through LangChain.
+- Requires structured model output containing `answer`, `citation_map`, and `unsupported`.
+- Validates citation labels against the retrieved chunks before returning the response.
 
-## Document ingestion pipeline
+## Stack
 
-The ingestion pipeline should be repeatable, idempotent, and versioned so that source updates can be traced to answer changes.
+- **API:** FastAPI
+- **CLI:** Typer
+- **LLM + embeddings:** `langchain-openai`
+- **Vector store:** `langchain-postgres` PGVector
+- **Database:** PostgreSQL 16 with `pgvector`
+- **Parsing:** Beautiful Soup for HTML, pdfplumber for PDF, direct UTF-8 text for TXT/MD
+- **Tests:** pytest and Ruff
 
-1. **Collect documents** from public-domain texts, licensed ebooks, scholarly notes, biographies, poetry collections, study guides, and institution-approved PDFs or HTML pages.
-2. **Normalize text** by extracting clean UTF-8 text, preserving stanza breaks, act/scene divisions, page numbers, headings, footnotes, and translator/editor notes when licensed.
-3. **Attach metadata** to every source document, including `source_id`, title, author, translator, editor, publication year, edition, genre, language, license, URI, page range, chapter, act, scene, poem title, and ingestion timestamp.
-4. **Split into chunks** using structure-aware rules: poems by stanza or line groups, plays by scene and speaker turns, novels by paragraphs or chapter sections, and biographies by headed sections.
-5. **Control chunk size** with a target of 300-800 tokens and 10-20% overlap for prose; use smaller chunks for poetry to avoid breaking line-level meaning.
-6. **Generate embeddings** for each chunk with a production embedding model, storing the vector alongside the text, metadata, chunk hash, document version, and token count.
-7. **Store chunks** in a vector database that supports approximate nearest-neighbor search, metadata filtering, hybrid lexical search, and namespace separation by corpus or tenant.
-8. **Validate ingestion** with checks for empty chunks, duplicate hashes, missing licenses, malformed citations, token outliers, and source counts per work.
+## Project Layout
 
-## Retrieval pipeline
+- `litbot/api/`: FastAPI app with `/health` and `/chat`.
+- `litbot/cli.py`: `serve`, `ingest`, `reindex`, `ask`, and `eval` commands.
+- `litbot/ingestion/`: parsing, normalization, chunking, and LangChain document storage.
+- `litbot/retrieval/`: hybrid PGVector plus PostgreSQL full-text retrieval.
+- `litbot/generation/`: LangChain prompt construction, structured generation, and citation validation.
+- `litbot/langchain.py`: LangChain factories and conversion helpers.
+- `litbot/models.py`: request, response, chunk, and citation dataclasses.
+- `corpus/`: small public-domain sample corpus.
+- `examples/`: tiny Frankenstein excerpt for quick ingestion tests.
+- `migrations/`: PostgreSQL extension/index setup. LangChain creates its own PGVector tables.
 
-At query time, retrieval should combine semantic similarity with literary metadata and lexical precision.
+## Setup
 
-1. **Classify the query intent** as plot, character, theme, quote lookup, poem interpretation, biography, comparison, historical context, or bibliography.
-2. **Rewrite or expand the query** when useful, adding canonical names, aliases, spellings, and work titles; for example, map “the creature” to “Frankenstein's creature” when the target work is known.
-3. **Embed the query** using the same embedding family used for document chunks.
-4. **Search the vector database** with optional metadata filters such as author, work, poem, era, language, or grade level.
-5. **Run hybrid search** by combining vector similarity with keyword/BM25 matching, especially for names, quotations, uncommon phrases, line numbers, and titles.
-6. **Rerank candidates** with a cross-encoder or LLM-based reranker to prioritize chunks that directly answer the question.
-7. **Assemble context** from the top 4-10 chunks, respecting a token budget and avoiding near-duplicate chunks from the same passage unless continuity is needed.
-8. **Return retrieval diagnostics** such as chunk IDs, scores, metadata, and reasons for inclusion for logging and citation validation.
+Create an environment file:
 
-## Sending retrieved chunks to the LLM
-
-The LLM should receive only the information needed to answer the question and should be explicitly instructed to ground claims in the provided context.
-
-```text
-System:
-You are a literary research assistant. Answer using the provided sources. If the sources do not contain enough evidence, say what is missing. Do not invent quotes, page numbers, biographical details, or publication facts. Cite every factual claim that depends on the sources.
-
-Developer:
-Use concise, student-friendly prose. Separate interpretation from textual evidence. Prefer primary text evidence over secondary commentary. Cite sources in bracketed form such as [S1] or [S2, S4].
-
-User question:
-{question}
-
-Retrieved sources:
-[S1]
-source_id: moby-dick-1851-ch42
-work: Moby-Dick
-chapter: 42
-page: 189
-chunk_text: ...
-
-[S2]
-source_id: melville-biography-licensed-p12
-work: Herman Melville biography
-page: 12
-chunk_text: ...
+```bash
+cp .env.example .env
 ```
 
-For structured API implementations, send the prompt as messages and pass the sources as structured JSON in the request body or tool result. Keep each source label stable throughout the response so the post-processor can verify that every citation refers to a retrieved chunk.
+Set `OPENAI_API_KEY` in `.env` before running ingestion or generation.
 
-## Citation handling and source metadata
+Start PostgreSQL:
 
-Citations should be generated from chunk metadata, not inferred by the model.
+```bash
+docker compose up -d postgres
+```
 
-- Use short inline citations such as `[S1]` during generation, then convert them to user-facing citations like `Moby-Dick, ch. 42, p. 189` or `Shelley, Frankenstein, vol. 1, ch. 4`.
-- Keep quote citations line- or page-specific when possible; poetry citations should preserve poem title and line numbers.
-- Store source metadata fields for `source_id`, `chunk_id`, `title`, `author`, `translator`, `edition`, `publication_year`, `publisher`, `license`, `uri`, `page_start`, `page_end`, `chapter`, `act`, `scene`, `line_start`, and `line_end`.
-- Require the generation output to include a machine-readable citation map, for example `{ "claim": "...", "sources": ["S1"] }`, when building study tools or teacher-facing products.
-- Reject or flag citations that reference chunks not included in the retrieval context.
-- If the answer uses general literary knowledge not present in the retrieved chunks, label it as uncited background or run another retrieval pass.
+Install the package:
 
-## Recommended tools
+```bash
+uv sync --extra dev
+```
 
-- **LLM API:** OpenAI GPT models for answer generation, summarization, query rewriting, and optional reranking.
-- **Embeddings:** OpenAI embedding models or another model with strong multilingual semantic retrieval if the corpus includes translated or non-English works.
-- **Vector database:** Pinecone, Weaviate, Qdrant, Milvus, Elasticsearch/OpenSearch vector search, or PostgreSQL with pgvector for smaller deployments.
-- **Document parsing:** Unstructured, Apache Tika, pdfplumber, Beautiful Soup, Pandoc, or custom TEI/XML parsers for scholarly editions.
-- **Chunk orchestration:** LangChain, LlamaIndex, Haystack, or a lightweight custom pipeline for tighter control.
-- **Evaluation:** RAGAS, DeepEval, promptfoo, custom golden-question sets, citation precision checks, and human review by literature specialists.
-- **Observability:** OpenTelemetry, structured logs, trace IDs, vector search metrics, prompt versioning, and feedback capture.
+If you are not using uv:
 
-## Error cases and mitigations
+```bash
+python -m pip install -e '.[dev]'
+```
 
-| Error case | Mitigation |
-| --- | --- |
-| No relevant chunks are found | Ask a clarifying question, broaden metadata filters, or state that the corpus lacks support. |
-| Low similarity or conflicting sources | Show uncertainty, compare sources explicitly, and prefer primary texts or authoritative editions. |
-| The user requests an exact quote not in context | Run quote-focused lexical search; if still missing, say the exact quote was not found. |
-| Retrieved chunks are too long | Summarize or trim around the most relevant sentences before generation while preserving citation IDs. |
-| Model hallucinates citations | Validate citations against retrieved source IDs and regenerate with stricter instructions if invalid. |
-| Ambiguous titles or characters | Ask for clarification or use metadata to present likely matches, such as different works named “The Tempest.” |
-| Copyright-restricted text | Store and retrieve only licensed content, limit displayed excerpts, and cite metadata without exposing disallowed text. |
-| Biographical claims vary by source | Cite the source used, include dates and uncertainty, and avoid unsupported speculation. |
-| Multilingual or translated passages | Track original language and translator metadata, and avoid mixing editions without warning. |
-| Vector database outage | Fall back to cached results, lexical search, or a graceful error message with retry guidance. |
+## Ingest Documents
 
-## Concise implementation plan
+Ingest one document:
 
-1. **Define corpus policy:** choose approved literary texts, biographies, editions, translations, and licensing rules.
-2. **Build ingestion MVP:** parse documents, normalize text, attach metadata, chunk sources, embed chunks, and store them in a vector database.
-3. **Implement retrieval API:** accept a question and filters, run vector plus lexical search, rerank candidates, and return top chunks with metadata.
-4. **Implement generation API:** construct grounded prompts, call the LLM, require citations, and post-process citation labels into readable references.
-5. **Add evaluation:** create golden questions for plot, themes, characters, poems, author biographies, and quote lookup; measure answer faithfulness and citation accuracy.
-6. **Add guardrails:** handle empty retrieval, ambiguous questions, copyrighted content, invalid citations, prompt injection in documents, and unsupported claims.
-7. **Ship iteratively:** start with a small public-domain corpus, add monitoring and feedback, then expand to licensed sources and advanced filters.
+```bash
+uv run litbot ingest examples/frankenstein_excerpt.txt
+```
 
-## MVP implementation in this repository
+Recreate the LangChain PGVector collection and ingest the local corpus:
 
-This repository now contains a runnable Python MVP for the design above. The initial stack choices are:
+```bash
+uv run litbot reindex corpus
+```
 
-- **API service:** FastAPI (`litbot/api/main.py`).
-- **LLM API:** OpenAI GPT chat completions via the official `openai` Python SDK.
-- **Embeddings:** OpenAI embeddings via the official `openai` Python SDK.
-- **Vector database:** PostgreSQL with the `pgvector` extension and hybrid full-text search.
-- **Document parsing:** Plain text/Markdown, HTML with Beautiful Soup, and PDF with pdfplumber.
-- **Chunk orchestration:** A lightweight custom chunker that preserves paragraph/stanza boundaries.
-- **Evaluation:** A minimal JSONL scorer for answer coverage and citation presence, intended as the first step before adding RAGAS/DeepEval or human review.
-- **Observability:** Structured JSON logs with trace IDs and retrieval/generation metrics hooks.
+Ingestion expects a metadata sidecar next to the source file:
 
-### Local setup
+```text
+examples/frankenstein_excerpt.txt
+examples/frankenstein_excerpt.txt.json
+```
 
-1. Create an environment file:
+Required metadata fields are enforced by `litbot/ingestion/parsers.py`:
 
-   ```bash
-   cp .env.example .env
-   # edit OPENAI_API_KEY if you plan to ingest or answer questions
-   ```
+- `source_id`
+- `title`
+- `author`
+- `publication_year`
+- `genre`
+- `language`
+- `license`
+- `uri`
+- `version`
+- `metadata.work`
 
-2. Start PostgreSQL with pgvector:
+## Run The API
 
-   ```bash
-   docker compose up -d postgres
-   ```
+Start the server:
 
-   The initial schema is mounted from `migrations/001_init.sql`.
+```bash
+uv run litbot serve --port 8000
+```
 
-3. Install the package:
+Ask a question:
 
-   ```bash
-   python -m pip install -e '.[dev]'
-   ```
+```bash
+curl -s http://localhost:8000/chat \
+  -H 'content-type: application/json' \
+  -d '{"question":"How does Victor describe the creature when it comes to life?","filters":{"work":"Frankenstein"}}'
+```
 
-4. Ingest the example public-domain excerpt:
+The response includes the generated answer, validated citations, retrieved chunks, unsupported
+claims, prompt version, and trace ID.
 
-   ```bash
-   litbot ingest examples/frankenstein_excerpt.txt
-   ```
+## CLI Usage
 
-5. Run the API:
+Ask from the terminal:
 
-   ```bash
-   litbot serve --port 8000
-   ```
+```bash
+uv run litbot ask "How does Victor react when the creature comes to life?"
+```
 
-6. Ask a grounded question:
+Score a JSONL answer export with the lightweight evaluator:
 
-   ```bash
-   curl -s http://localhost:8000/chat \
-     -H 'content-type: application/json' \
-     -d '{"question":"How does Victor describe the creature when it comes to life?","filters":{"work":"Frankenstein"}}'
-   ```
+```bash
+uv run litbot eval path/to/answers.jsonl
+```
 
-### Project layout
+## Configuration
 
-- `litbot/ingestion/` parses approved files, normalizes text, chunks documents, calls OpenAI embeddings, and stores vectors in PostgreSQL.
-- `litbot/retrieval/` embeds queries and performs hybrid pgvector + PostgreSQL full-text retrieval with metadata filters.
-- `litbot/generation/` builds grounded prompts, calls the configured OpenAI GPT model, validates citation labels, and formats references from stored metadata.
-- `litbot/api/` exposes `/health` and `/chat`.
-- `litbot/evaluation/` provides a minimal evaluator for JSONL exports.
-- `migrations/` contains the PostgreSQL/pgvector schema.
-- `examples/` contains a tiny public-domain sample document and metadata sidecar.
+Configuration is loaded from environment variables, with `LITBOT_` prefixes where applicable.
 
-### Configuration
-
-Key environment variables are shown in `.env.example`:
-
-- `OPENAI_API_KEY`: required for ingestion and answer generation.
+- `OPENAI_API_KEY`: required for OpenAI embeddings and chat generation.
 - `LITBOT_DATABASE_URL`: PostgreSQL connection string.
-- `LITBOT_LLM_MODEL`: configurable OpenAI GPT model for generation.
-- `LITBOT_EMBEDDING_MODEL`: configurable OpenAI embedding model.
-- `LITBOT_EMBEDDING_DIMENSIONS`: must match the `vector(...)` dimension in `migrations/001_init.sql`.
-- `LITBOT_TOP_K`: default number of retrieved chunks.
+- `LITBOT_LLM_MODEL`: OpenAI chat model. Default: `gpt-4.1-mini`.
+- `LITBOT_EMBEDDING_MODEL`: OpenAI embedding model. Default: `text-embedding-3-small`.
+- `LITBOT_EMBEDDING_DIMENSIONS`: embedding dimension. Default: `1536`.
+- `LITBOT_VECTOR_COLLECTION_NAME`: LangChain PGVector collection. Default: `litbot_chunks`.
+- `LITBOT_TOP_K`: default number of retrieved chunks. Default: `8`.
+- `LITBOT_PROMPT_VERSION`: prompt version label returned in responses.
+
+## Current Retrieval And Generation Flow
+
+1. The user question is embedded by LangChain PGVector during similarity search.
+2. Metadata filters are translated into PGVector JSONB filters.
+3. A lexical search runs against `langchain_pg_embedding.document`.
+4. Vector and lexical results are merged with the current weighted formula.
+5. Final chunks are labeled `S1`, `S2`, etc.
+6. LangChain builds a chat prompt containing the question and retrieved source payload.
+7. `ChatOpenAI.with_structured_output()` returns typed answer data.
+8. Citation labels in the answer or citation map are validated against retrieved chunks.
+
+## Tests
+
+Run the suite:
+
+```bash
+uv run pytest
+```
+
+Run Ruff:
+
+```bash
+uv run ruff check .
+```
+
+The current tests cover chunking, parsing, citation validation, LangChain document conversion,
+prompt assembly, structured generation mapping, and hybrid retrieval ranking.
+

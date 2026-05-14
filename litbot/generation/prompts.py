@@ -1,5 +1,7 @@
 import json
 
+from langchain_core.prompts import ChatPromptTemplate
+
 from litbot.models import RetrievedChunk
 
 SYSTEM_PROMPT = """
@@ -18,7 +20,16 @@ objects with claim and sources), unsupported (array of strings).
 """.strip()
 
 
-def build_messages(question: str, chunks: list[RetrievedChunk]) -> list[dict[str, str]]:
+PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
+    [
+        ("system", SYSTEM_PROMPT),
+        ("system", DEVELOPER_PROMPT),
+        ("human", "{user_payload}"),
+    ]
+)
+
+
+def build_user_payload(question: str, chunks: list[RetrievedChunk]) -> str:
     sources = []
     for chunk in chunks:
         metadata = dict(chunk.metadata)
@@ -32,8 +43,17 @@ def build_messages(question: str, chunks: list[RetrievedChunk]) -> list[dict[str
             }
         )
     user_payload = {"question": question, "retrieved_sources": sources}
+    return json.dumps(user_payload, ensure_ascii=False)
+
+
+def build_messages(question: str, chunks: list[RetrievedChunk]) -> list[dict[str, str]]:
+    user_payload = build_user_payload(question, chunks)
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "developer", "content": DEVELOPER_PROMPT},
-        {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+        {"role": "user", "content": user_payload},
     ]
+
+
+def build_prompt_value(question: str, chunks: list[RetrievedChunk]):
+    return PROMPT_TEMPLATE.invoke({"user_payload": build_user_payload(question, chunks)})
