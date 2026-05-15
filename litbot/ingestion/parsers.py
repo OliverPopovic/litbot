@@ -8,8 +8,9 @@ from litbot.models import DocumentMetadata, ParsedDocument
 
 
 def parse_document(path: Path, metadata_path: Path | None = None) -> ParsedDocument:
-    """Parse a TXT/MD/HTML/PDF document with sidecar JSON metadata."""
+    """Parse source text plus sidecar metadata into LitBot's normalized document shape."""
 
+    # Every ingested source needs validated corpus metadata before any text enters the pipeline.
     metadata = _load_metadata(path, metadata_path)
     suffix = path.suffix.lower()
     if suffix in {".txt", ".md"}:
@@ -31,10 +32,14 @@ def parse_document(path: Path, metadata_path: Path | None = None) -> ParsedDocum
         text = "\n".join(pages)
     else:
         raise ValueError(f"Unsupported document type: {path.suffix}")
+
+    # Downstream chunk hashes depend on text content, so normalize whitespace once at the boundary.
     return ParsedDocument(metadata=metadata, text=_normalize_text(text))
 
 
 def _load_metadata(path: Path, metadata_path: Path | None) -> DocumentMetadata:
+    """Load the `.json` sidecar that describes citation and licensing metadata."""
+
     candidate = metadata_path or path.with_suffix(path.suffix + ".json")
     if not candidate.exists():
         raise FileNotFoundError(f"Metadata sidecar not found: {candidate}")
@@ -50,6 +55,8 @@ def _load_metadata(path: Path, metadata_path: Path | None) -> DocumentMetadata:
 
 
 def _normalize_text(text: str) -> str:
+    """Collapse platform-specific newlines and repeated blank lines without touching wording."""
+
     lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     normalized: list[str] = []
     blank_seen = False

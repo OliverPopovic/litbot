@@ -18,21 +18,29 @@ class IngestionService:
     def __init__(self, conn: Connection, settings: Settings | None = None) -> None:
         self.conn = conn
         self.settings = settings or get_settings()
+        # The vector store embeds and persists LangChain Documents in the configured PGVector table.
         self.vector_store = make_vector_store(self.settings)
 
     def ingest_path(self, path: Path, metadata_path: Path | None = None) -> list[TextChunk]:
+        """Read a source file from disk, then pass the parsed document into ingestion."""
+
         parsed = parse_document(path, metadata_path)
         return self.ingest_document(parsed)
 
     def ingest_document(self, parsed: ParsedDocument) -> list[TextChunk]:
+        """Chunk a parsed document, replace prior source rows, and store fresh embeddings."""
+
         chunks = chunk_document(parsed.text, parsed.metadata)
         if not chunks:
             raise ValueError(f"No chunks produced for {parsed.metadata.source_id}")
         if not parsed.metadata.license.strip():
             raise ValueError(f"Missing license for {parsed.metadata.source_id}")
 
+        # Reingestion is source-id idempotent: old chunks are removed before new ones are embedded.
         delete_source_documents(self.conn, parsed.metadata.source_id, self.settings)
         self.conn.commit()
+
+        # LangChain's vector store accepts Documents, so this is the final boundary conversion.
         documents = [chunk_to_document(chunk) for chunk in chunks]
         self.vector_store.add_documents(documents, ids=[chunk.chunk_id for chunk in chunks])
         logger.info(

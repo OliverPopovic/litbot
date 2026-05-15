@@ -13,6 +13,7 @@ POETRY_LINES_PER_UNIT = 8
 def estimate_tokens(text: str) -> int:
     """Fast token estimate suitable for chunk sizing and validation."""
 
+    # This is an approximation, not the OpenAI tokenizer. It keeps splitting deterministic and fast.
     return len(TOKEN_RE.findall(text))
 
 
@@ -24,6 +25,8 @@ def chunk_document(
 ) -> list[TextChunk]:
     """Split text into structure-aware chunks while preserving paragraph and poetry breaks."""
 
+    # LangChain handles the mechanics of recursive splitting and overlap. LitBot still owns the
+    # citation-specific fields that make each chunk stable and traceable after retrieval.
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=target_tokens,
         chunk_overlap=overlap_tokens,
@@ -32,6 +35,8 @@ def chunk_document(
     )
     prepared_text = _prepare_text_for_splitting(text, metadata.genre)
     documents = splitter.create_documents([prepared_text], metadatas=[_chunk_metadata(metadata)])
+
+    # Convert LangChain's generic Document objects back into LitBot's stricter chunk model.
     return [
         _make_chunk(document.page_content, index, metadata, dict(document.metadata))
         for index, document in enumerate(documents)
@@ -55,6 +60,8 @@ def _prepare_text_for_splitting(text: str, genre: str | None) -> str:
 
 
 def _chunk_metadata(metadata: DocumentMetadata) -> dict[str, object]:
+    """Flatten corpus metadata onto every chunk so retrieval results are self-describing."""
+
     chunk_metadata = dict(metadata.metadata)
     chunk_metadata.update(
         metadata.model_dump(
@@ -73,6 +80,8 @@ def _make_chunk(
     chunk_metadata: dict[str, object],
 ) -> TextChunk:
     text = text.strip()
+
+    # The hash makes chunk IDs deterministic as long as source text and splitting stay the same.
     chunk_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     chunk_id = f"{metadata.source_id}:{chunk_index:05d}:{chunk_hash[:10]}"
     return TextChunk(
