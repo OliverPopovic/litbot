@@ -2,27 +2,21 @@ import json
 from typing import Any
 
 import structlog
-from langchain_core.documents import Document
 from psycopg import Connection
 
 from litbot.config import Settings, get_settings
-from litbot.langchain import document_to_retrieved_chunk, ensure_lexical_index, make_vector_store
+from litbot.langchain import document_to_retrieved_chunk, embed_query
 from litbot.models import RetrievedChunk
 
 logger = structlog.get_logger(__name__)
 
 
 class RetrievalService:
-    """Hybrid semantic + lexical retriever backed by LangChain PGVector."""
+    """Hybrid semantic + lexical retriever over the litbot schema."""
 
-    def __init__(
-        self,
-        conn: Connection,
-        settings: Settings | None = None,
-    ) -> None:
+    def __init__(self, conn: Connection, settings: Settings | None = None) -> None:
         self.conn = conn
         self.settings = settings or get_settings()
-        self.vector_store = make_vector_store(self.settings)
 
     def retrieve(
         self,
@@ -32,102 +26,115 @@ class RetrievalService:
     ) -> list[RetrievedChunk]:
         filters = _normalize_filters(filters)
         limit = top_k or self.settings.top_k
-        vector_rows = self._vector_search(question, filters, limit * 3)
+
+        query_vector = embed_query(question, self.settings)
+        vector_rows = self._vector_search(query_vector, filters, limit * 3)
         lexical_rows = self._lexical_search(question, filters, limit * 3)
-        merged = self._merge_rows(vector_rows, lexical_rows, limit)
+        merged = self._merge(vector_rows, lexical_rows, limit)
+
         logger.info("retrieval_completed", top_k=limit, returned=len(merged), filters=filters)
         return merged
 
     def _vector_search(
         self,
-        question: str,
+        query_vector: list[float],
         filters: dict[str, Any],
         limit: int,
-    ) -> list[tuple[Document, float]]:
-        return self.vector_store.similarity_search_with_score(
-            query=question,
-            k=limit,
-            filter=_to_pgvector_filter(filters),
-        )
+    ) -> list[dict]:
+        where, params = _metadata_where_clause(filters)
+        prefix = f"AND {where}" if where else ""
+        vector = _vector_literal(query_vector)
+        rows = self.conn.execute(
+            f"""
+            SELECT chunk_id, source_id, text, metadata,
+                   1 - (embedding <=> %s::vector) AS vector_score
+            FROM chunks
+            WHERE 1=1 {prefix}
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+            """,
+            [vector, *params, vector, limit],
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def _lexical_search(
         self,
         question: str,
         filters: dict[str, Any],
         limit: int,
-    ) -> list[tuple[Document, float]]:
-        ensure_lexical_index(self.conn)
+    ) -> list[dict]:
         where, params = _metadata_where_clause(filters)
         prefix = f"AND {where}" if where else ""
-        # LangChain PGVector owns the storage tables; this query adds a lexical ranking pass over
-        # the same collection so exact names and phrases can compete with semantic matches.
         rows = self.conn.execute(
             f"""
-            SELECT e.document, e.cmetadata,
-                   ts_rank_cd(
-                       to_tsvector('english', e.document),
-                       plainto_tsquery('english', %s)
-                   ) AS lexical_score
-            FROM langchain_pg_embedding e
-            JOIN langchain_pg_collection c ON c.uuid = e.collection_id
-            WHERE c.name = %s
-              AND to_tsvector('english', e.document) @@ plainto_tsquery('english', %s)
+            SELECT chunk_id, source_id, text, metadata,
+                   ts_rank_cd(to_tsvector('english', text),
+                              plainto_tsquery('english', %s)) AS lexical_score
+            FROM chunks
+            WHERE to_tsvector('english', text) @@ plainto_tsquery('english', %s)
               {prefix}
             ORDER BY lexical_score DESC
             LIMIT %s
             """,
-            [question, self.settings.vector_collection_name, question, *params, limit],
+            [question, question, *params, limit],
         ).fetchall()
-        return [
-            (
-                Document(
-                    id=str((row["cmetadata"] or {}).get("chunk_id") or ""),
-                    page_content=row["document"],
-                    metadata=row["cmetadata"] or {},
-                ),
-                float(row["lexical_score"] or 0.0),
-            )
-            for row in rows
-        ]
+        return [dict(row) for row in rows]
 
-    def _merge_rows(
+    def _merge(
         self,
-        vector_rows: list[tuple[Document, float]],
-        lexical_rows: list[tuple[Document, float]],
+        vector_rows: list[dict],
+        lexical_rows: list[dict],
         limit: int,
     ) -> list[RetrievedChunk]:
-        by_id: dict[str, dict[str, Any]] = {}
-        for document, distance in vector_rows:
-            chunk_id = _document_chunk_id(document)
-            by_id[chunk_id] = {
-                "document": document,
-                "vector_score": _distance_to_similarity(distance),
-                "lexical_score": None,
-            }
-        for document, lexical_score in lexical_rows:
-            chunk_id = _document_chunk_id(document)
-            existing = by_id.setdefault(
-                chunk_id,
-                {"document": document, "vector_score": 0.0, "lexical_score": None},
-            )
-            existing["lexical_score"] = lexical_score
+        by_id: dict[str, dict] = {}
+
+        for row in vector_rows:
+            by_id[row["chunk_id"]] = {**row, "lexical_score": None}
+
+        for row in lexical_rows:
+            cid = row["chunk_id"]
+            if cid in by_id:
+                by_id[cid]["lexical_score"] = row["lexical_score"]
+            else:
+                by_id[cid] = {**row, "vector_score": 0.0}
+
+        # Normalize each score set to [0, 1] before combining so they're
+        # on the same scale. Raw ts_rank_cd values are unbounded upward.
+        v_scores = [row.get("vector_score") or 0.0 for row in by_id.values()]
+        l_scores = [row["lexical_score"] or 0.0 for row in by_id.values()]
+        v_max = max(max(v_scores), 1.0) if v_scores else 1.0
+        l_max = max(l_scores) if l_scores else 1.0
 
         ranked: list[RetrievedChunk] = []
         for row in by_id.values():
-            vector_score = float(row.get("vector_score") or 0.0)
-            lexical_score = float(row.get("lexical_score") or 0.0)
-            combined = (0.75 * vector_score) + (0.25 * min(lexical_score, 1.0))
+            v = (row.get("vector_score") or 0.0) / (v_max or 1.0)
+            lexical_score = row.get("lexical_score") or 0.0
+            lexical_normalized = lexical_score / (l_max or 1.0)
+            combined = 0.75 * v + 0.25 * lexical_normalized
+
+            # Describe how this chunk was actually found.
+            has_v = (row.get("vector_score") or 0.0) > 0
+            has_l = lexical_score > 0
+            if has_v and has_l:
+                reason = "hybrid vector + lexical match"
+            elif has_v:
+                reason = "vector match only"
+            else:
+                reason = "lexical match only"
+
             ranked.append(
                 document_to_retrieved_chunk(
-                    row["document"],
-                    vector_score=vector_score or None,
-                    lexical_score=lexical_score or None,
+                    row,
+                    vector_score=row.get("vector_score"),
+                    lexical_score=row.get("lexical_score"),
                     combined_score=combined,
+                    reason=reason,
                 )
             )
-        ranked.sort(key=lambda item: item.combined_score, reverse=True)
-        for index, item in enumerate(ranked[:limit], start=1):
-            item.label = f"S{index}"
+
+        ranked.sort(key=lambda chunk: chunk.combined_score, reverse=True)
+        for i, chunk in enumerate(ranked[:limit], start=1):
+            chunk.label = f"S{i}"
         return ranked[:limit]
 
 
@@ -135,38 +142,20 @@ def _normalize_filters(filters: dict[str, Any] | None) -> dict[str, Any]:
     return {key: value for key, value in (filters or {}).items() if value is not None}
 
 
-def _to_pgvector_filter(filters: dict[str, Any]) -> dict[str, Any] | None:
-    """Translate normalized user filters into LangChain PGVector's metadata filter dialect."""
-
-    conditions = []
-    for key, value in filters.items():
-        conditions.append({key: {"$eq": value}})
-    if not conditions:
-        return None
-    if len(conditions) == 1:
-        return conditions[0]
-    return {"$and": conditions}
-
-
 def _metadata_where_clause(filters: dict[str, Any]) -> tuple[str, list[Any]]:
-    """Translate the same normalized filters into SQL predicates for the lexical pass."""
+    """Translate user filters into SQL predicates against the chunks.metadata JSONB column."""
 
     clauses: list[str] = []
     params: list[Any] = []
     for key, value in filters.items():
         if isinstance(value, (dict, list)):
-            clauses.append("e.cmetadata @> %s::jsonb")
+            clauses.append("metadata @> %s::jsonb")
             params.append(json.dumps({key: value}))
         else:
-            clauses.append("e.cmetadata->>%s = %s")
+            clauses.append("metadata->>%s = %s")
             params.extend([key, str(value)])
     return (" AND ".join(clauses), params)
 
 
-def _document_chunk_id(document: Document) -> str:
-    return str(document.metadata.get("chunk_id") or document.id or "")
-
-
-def _distance_to_similarity(distance: float) -> float:
-    # LangChain PGVector returns a distance, while the previous retriever used cosine similarity.
-    return max(0.0, 1.0 - float(distance))
+def _vector_literal(vector: list[float]) -> str:
+    return "[" + ",".join(str(value) for value in vector) + "]"

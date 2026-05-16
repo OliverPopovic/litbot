@@ -8,9 +8,9 @@ This is not a final architecture decision record. It is a review aid extracted f
 | --- | --- | --- |
 | LLM | OpenAI chat model through LangChain, default `gpt-4.1-mini`, temperature `0.2`, structured output schema. | Good enough for early RAG; model choice and quality/cost targets need review. |
 | Embeddings | OpenAI `text-embedding-3-small`, 1536 dimensions. | Practical default; needs benchmark against corpus and query types. |
-| Retrieval memory | PostgreSQL + LangChain PGVector collection, with semantic and lexical retrieval over chunk text and JSONB metadata. | Strong simple baseline; storage ownership needs clarification. |
+| Retrieval memory | PostgreSQL first-party `documents`/`chunks` tables with pgvector embeddings, semantic search over `chunks.embedding`, and lexical search over `chunks.text`/JSONB metadata. | Storage source of truth is now first-party; retrieval quality still needs benchmark coverage. |
 | Conversation memory | None. Each request is stateless except for corpus retrieval. | Explicit product decision needed. |
-| Tools/integrations | FastAPI, Typer, LangChain OpenAI, LangChain PGVector, PostgreSQL full-text search, Beautiful Soup, pdfplumber. | Minimal and understandable; future integrations should be added only for specific gaps. |
+| Tools/integrations | FastAPI, Typer, LangChain OpenAI, LangChain text splitters, psycopg, pgvector, PostgreSQL full-text search, Beautiful Soup, pdfplumber. | Minimal and understandable; future integrations should be added only for specific gaps. |
 | Planning/orchestration | Linear retrieve-then-generate flow. LangGraph is not implemented. | Keep linear unless real multi-step needs appear. |
 | Guardrails/safety | Grounded prompt, structured output, citation validation, no-answer behavior when no chunks are retrieved. | Useful baseline; not enough for hostile or production settings. |
 | Feedback/evaluation | Structured logs and basic JSONL scoring for answerability, citation presence, and unsupported fields. | Needs a reproducible evaluation plan before optimizing retrieval or models. |
@@ -64,8 +64,8 @@ Decide whether the current chunking and embedding defaults are the long-term bas
 
 **Facts today**
 
-- Retrieval is hybrid: semantic PGVector search plus PostgreSQL full-text search.
-- Combined score currently weights vector similarity at 75% and lexical score at 25%.
+- Retrieval is hybrid: semantic pgvector search over `chunks.embedding` plus PostgreSQL full-text search over `chunks.text`.
+- Combined score currently normalizes vector and lexical score sets, then weights vector similarity at 75% and lexical score at 25%.
 - Lexical search is valuable for exact names, quotes, and phrasing.
 - There is no cross-encoder reranker, LLM reranker, diversity pass, or query rewriting.
 
@@ -80,27 +80,28 @@ Decide how much retrieval quality to buy with complexity.
 - Should there be per-query retrieval diagnostics that explain which chunks came from vector search, lexical search, or both?
 - Is reranking worth the extra latency and cost for the intended users?
 
-### 4. Storage ownership: LangChain tables versus first-party schema
+### 4. Storage ownership and schema governance
 
 **Facts today**
 
-- The active code writes to LangChain PGVector tables.
-- Custom source deletion and lexical search query LangChain-owned tables directly.
-- The migration creates first-party `documents` and `chunks` tables, but the current ingestion path does not write to them.
+- The active code writes to first-party `documents` and `chunks` tables created by `migrations/001_init.sql`.
+- Ingestion embeds chunk text with LangChain OpenAI helpers but inserts rows directly with psycopg.
+- Retrieval queries `chunks` directly for both semantic pgvector search and lexical PostgreSQL full-text search.
+- LangChain PGVector tables are no longer part of the active storage path.
 
 **Decision needed**
 
-Pick one storage source of truth.
+Decide how formal schema governance should become now that the migration is the source of truth.
 
 **Options**
 
-- Continue using LangChain PGVector tables and document the coupling.
-- Move to first-party `documents` and `chunks` tables and use LangChain only at the boundaries.
-- Keep LangChain PGVector for embeddings but add first-party tables for document registry, ingestion audit, and corpus governance.
+- Keep the single SQL migration while the project is small.
+- Add a migration runner/version table before more schema changes.
+- Add ingestion audit/history tables for source versioning, license review, and reindex tracking.
 
 **Questions to answer**
 
-- How important is avoiding direct dependencies on LangChain table internals?
+- When should schema changes move from manual SQL files to a managed migration workflow?
 - Do we need ingestion history, source versioning, and auditability soon?
 - Should metadata validation failures and license decisions be persisted?
 
@@ -217,7 +218,7 @@ Decide whether LitBot is still a local research prototype or is moving toward a 
 ## Suggested Near-Term Decision Order
 
 1. Define the first evaluation set and metrics.
-2. Decide whether active storage should remain LangChain-owned or move toward first-party tables.
+2. Decide whether the first-party schema needs migration governance and ingestion audit history.
 3. Decide whether LitBot remains stateless or needs explicit session/project memory.
 4. Benchmark the current LLM, embedding, chunking, and retrieval weights before replacing them.
 5. Add guardrail tests that match the expected deployment risk.
