@@ -11,7 +11,6 @@ from litbot.db import close_pool, get_connection
 from litbot.evaluation.golden import load_golden_questions, score_answers
 from litbot.generation.service import GenerationService
 from litbot.ingestion.store import IngestionService
-from litbot.langchain import make_vector_store
 from litbot.observability.logging import configure_logging
 from litbot.retrieval.service import RetrievalService
 
@@ -57,13 +56,14 @@ def reindex(
         typer.Argument(help="Directory of corpus files to reingest."),
     ] = Path("corpus"),
 ) -> None:
-    """Recreate the LangChain PGVector collection and reingest corpus files."""
+    """Recreate first-party document and chunk rows, then reingest corpus files."""
 
     settings = get_settings()
-    make_vector_store(settings, pre_delete_collection=True)
     ingested = 0
     try:
         with get_connection(settings) as conn:
+            conn.execute("DELETE FROM documents")
+            conn.commit()
             service = IngestionService(conn, settings)
             for path in sorted(corpus_dir.rglob("*")):
                 if path.suffix.lower() not in {".txt", ".md", ".html", ".htm", ".pdf"}:
