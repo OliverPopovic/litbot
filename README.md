@@ -1,8 +1,8 @@
 # LitBot
 
 LitBot is a small literary RAG chatbot. It ingests approved literary texts, chunks them with
-stable citation metadata, stores them in PostgreSQL through LangChain PGVector, and answers
-questions with grounded citations.
+stable citation metadata, stores documents/chunks in first-party PostgreSQL tables with pgvector
+embeddings, and answers questions with grounded citations.
 
 The current implementation is intentionally compact: it is an API and CLI around a local corpus,
 not a finished product with authentication, user accounts, UI, advanced reranking, or production
@@ -13,10 +13,11 @@ monitoring.
 - Parses `.txt`, `.md`, `.html`, and `.pdf` files with JSON metadata sidecars.
 - Splits documents with LangChain text splitters while preserving LitBot's stable citation
   metadata and poetry-aware line grouping.
-- Stores chunks as LangChain `Document` objects in a PGVector collection.
-- Retrieves with hybrid search:
-  - LangChain PGVector similarity search for semantic matching.
-  - PostgreSQL full-text search for names, quotes, and exact phrasing.
+- Stores source metadata in `documents` and chunk text, metadata, hashes, token counts, and
+  embeddings in `chunks`.
+- Retrieves with hybrid search over LitBot-owned tables:
+  - pgvector cosine search over `chunks.embedding` for semantic matching.
+  - PostgreSQL full-text search over `chunks.text` for names, quotes, and exact phrasing.
 - Sends retrieved chunks to an OpenAI chat model through LangChain.
 - Requires structured model output containing `answer`, `citation_map`, and `unsupported`.
 - Validates citation labels against the retrieved chunks before returning the response.
@@ -30,10 +31,8 @@ monitoring.
   model output.
 - **LangChain text splitters:** implemented for document chunking. LitBot still adds custom
   citation IDs, metadata flattening, token estimation, and poetry pre-processing around it.
-- **LangChain PGVector:** implemented for vector storage and semantic retrieval. Source deletion
-  and lexical search still query LangChain PGVector tables directly, so those adapters should be
-  revisited if LangChain exposes a cleaner abstraction for those operations.
-- **PostgreSQL 16 + pgvector:** implemented through Docker Compose and migration setup.
+- **PostgreSQL 16 + pgvector:** implemented through Docker Compose, migrations, first-party
+  `documents`/`chunks` tables, and direct psycopg inserts/queries.
 - **PostgreSQL full-text search:** implemented for lexical retrieval. This is custom SQL by
   design today, not a LangChain retriever abstraction.
 - **Beautiful Soup + pdfplumber:** implemented for HTML and PDF parsing; TXT/MD use direct UTF-8
@@ -48,14 +47,14 @@ monitoring.
 
 - `litbot/api/`: FastAPI app with `/health` and `/chat`.
 - `litbot/cli.py`: `serve`, `ingest`, `reindex`, `ask`, and `eval` commands.
-- `litbot/ingestion/`: parsing, normalization, chunking, and LangChain document storage.
-- `litbot/retrieval/`: hybrid PGVector plus PostgreSQL full-text retrieval.
+- `litbot/ingestion/`: parsing, normalization, chunking, embedding, and first-party table storage.
+- `litbot/retrieval/`: hybrid pgvector plus PostgreSQL full-text retrieval over `chunks`.
 - `litbot/generation/`: LangChain prompt construction, structured generation, and citation validation.
-- `litbot/langchain.py`: LangChain factories and conversion helpers.
+- `litbot/langchain.py`: LangChain OpenAI factories and retrieval-row conversion helpers.
 - `litbot/models.py`: Pydantic request, response, metadata, chunk, and citation models.
 - `corpus/`: small public-domain sample corpus.
 - `examples/`: tiny Frankenstein excerpt for quick ingestion tests.
-- `migrations/`: PostgreSQL extension/index setup. LangChain creates its own PGVector tables.
+- `migrations/`: PostgreSQL extension, table, and index setup for the LitBot schema.
 
 ## Setup
 
@@ -85,6 +84,12 @@ If you are not using uv:
 python -m pip install -e '.[dev]'
 ```
 
+Apply the database schema:
+
+```bash
+psql $LITBOT_DATABASE_URL -f migrations/001_init.sql
+```
+
 ## Ingest Documents
 
 Ingest one document:
@@ -93,7 +98,7 @@ Ingest one document:
 uv run litbot ingest examples/frankenstein_excerpt.txt
 ```
 
-Recreate the LangChain PGVector collection and ingest the local corpus:
+Clear first-party document/chunk rows and ingest the local corpus:
 
 ```bash
 uv run litbot reindex corpus
@@ -137,7 +142,8 @@ curl -s http://localhost:8000/chat \
 ```
 
 The response includes the generated answer, validated citations, retrieved chunks, unsupported
-claims, prompt version, and trace ID.
+claims, prompt version, and trace ID. Blank questions return a 422 error, and unexpected server
+errors return a structured JSON `{"error":"Internal server error"}` response.
 
 ## CLI Usage
 
@@ -161,35 +167,37 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 - `LITBOT_DATABASE_URL`: PostgreSQL connection string.
 - `LITBOT_LLM_MODEL`: OpenAI chat model. Default: `gpt-4.1-mini`.
 - `LITBOT_EMBEDDING_MODEL`: OpenAI embedding model. Default: `text-embedding-3-small`.
-- `LITBOT_EMBEDDING_DIMENSIONS`: embedding dimension. Default: `1536`.
-- `LITBOT_VECTOR_COLLECTION_NAME`: LangChain PGVector collection. Default: `litbot_chunks`.
+- `LITBOT_EMBEDDING_DIMENSIONS`: embedding dimension. Default: `1536`; must match the migration's
+  `chunks.embedding vector(1536)` column unless the schema is changed too.
 - `LITBOT_TOP_K`: default number of retrieved chunks. Default: `8`.
 - `LITBOT_PROMPT_VERSION`: prompt version label returned in responses.
 
 ## Current Retrieval And Generation Flow
 
-1. The user question is embedded by LangChain PGVector during similarity search.
-2. Metadata filters are translated into PGVector JSONB filters.
-3. A lexical search runs against `langchain_pg_embedding.document`.
-4. Vector and lexical results are merged with the current weighted formula.
-5. Final chunks are labeled `S1`, `S2`, etc.
-6. LangChain builds a chat prompt containing the question and retrieved source payload.
-7. `ChatOpenAI.with_structured_output()` returns typed answer data.
-8. Citation labels in the answer or citation map are validated against retrieved chunks.
+1. The user question is embedded with LangChain `OpenAIEmbeddings`.
+2. Metadata filters are normalized and translated into SQL predicates against `chunks.metadata`.
+3. Semantic search runs a pgvector cosine-distance query against `chunks.embedding`.
+4. Lexical search runs PostgreSQL full-text search against `chunks.text`.
+5. Vector and lexical result sets are merged by `chunk_id`.
+6. Each score set is normalized before applying the current `0.75` vector / `0.25` lexical weight.
+7. Final chunks are labeled `S1`, `S2`, etc., and each chunk records whether it came from vector,
+   lexical, or hybrid matching.
+8. LangChain builds a chat prompt containing the question and retrieved source payload.
+9. `ChatOpenAI.with_structured_output()` returns typed answer data.
+10. Citation labels in the answer or citation map are validated against retrieved chunks.
 
 ## Implementation Plan
 
 - ~~Implement core RAG path for a local literary corpus.~~
-- ~~Implement LangChain framework instead of custom functions where it simplifies the app.~~
-  - ~~Use LangChain PGVector for vector storage and semantic search.~~
+- ~~Implement LangChain framework where it simplifies model, prompt, and chunking boundaries.~~
   - ~~Use LangChain OpenAI wrappers for embeddings and chat generation.~~
   - ~~Use LangChain prompt templates and structured output for generation.~~
   - ~~Use LangChain text splitters for chunking.~~
-  - Keep improving custom adapters where the app still reaches into LangChain PGVector tables for
-    source deletion and lexical search.
+  - ~~Move vector storage and retrieval onto LitBot-owned PostgreSQL tables.~~
+  - Keep storage-specific SQL in ingestion/retrieval modules instead of `litbot/langchain.py`.
 - ~~Optimize project structure and simplify framework boundaries.~~
   - ~~Move schema validation into Pydantic models.~~
-  - ~~Keep LangChain conversion helpers isolated in `litbot/langchain.py`.~~
+  - ~~Keep LangChain helpers isolated in `litbot/langchain.py`.~~
   - ~~Keep retrieval, generation, ingestion, API, CLI, and evaluation in separate modules.~~
   - Consider extracting lexical retrieval into its own retriever class if the hybrid search logic
     grows.
@@ -200,6 +208,7 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 - Populate database.
   - ~~Provide sample public-domain corpus files and sidecar metadata.~~
   - ~~Provide `litbot ingest` and `litbot reindex` commands.~~
+  - Run `psql $LITBOT_DATABASE_URL -f migrations/001_init.sql` before first ingestion.
   - Run `uv run litbot reindex corpus` against the target Postgres instance before demo or
     deployment.
   - Add a larger approved corpus after metadata, licensing, and evaluation expectations are clear.
@@ -231,5 +240,5 @@ uv run ruff check .
 ```
 
 The current tests cover API health, Pydantic metadata validation, parsing, LangChain-backed
-chunking, citation validation, LangChain document conversion, prompt assembly, structured
-generation mapping, and hybrid retrieval ranking.
+chunking, citation validation, retrieval-row conversion, prompt assembly, structured generation
+mapping, metadata filter SQL generation, and hybrid retrieval ranking.

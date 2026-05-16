@@ -4,15 +4,17 @@ This document captures the current baseline for LitBot's retrieval mechanism. It
 
 ## Baseline Summary
 
-LitBot currently uses a single-pass hybrid retrieval flow:
+LitBot currently uses a single-pass hybrid retrieval flow over the first-party `chunks` table:
 
 1. Normalize user metadata filters by dropping `None` values.
-2. Run semantic search through LangChain PGVector.
-3. Run lexical search through PostgreSQL full-text search over the same LangChain PGVector storage table.
-4. Merge both result sets by `chunk_id`.
-5. Compute one weighted combined score per chunk.
-6. Sort by combined score.
-7. Return the top `k` chunks labeled `S1`, `S2`, and so on.
+2. Embed the user question with LangChain `OpenAIEmbeddings`.
+3. Run semantic search with pgvector cosine distance over `chunks.embedding`.
+4. Run lexical search with PostgreSQL full-text search over `chunks.text`.
+5. Merge both result sets by `chunk_id`.
+6. Normalize vector and lexical score sets independently.
+7. Compute one weighted combined score per chunk.
+8. Sort by combined score.
+9. Return the top `k` chunks labeled `S1`, `S2`, and so on.
 
 There is no query rewriting, query decomposition, reranker, diversity pass, feedback loop, or multi-step retrieval planner in the current baseline.
 
@@ -33,32 +35,74 @@ The current retrieval-related defaults are:
 | Setting | Default | Role |
 | --- | --- | --- |
 | `LITBOT_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model used by LangChain OpenAI embeddings. |
-| `LITBOT_EMBEDDING_DIMENSIONS` | `1536` | Embedding dimensionality passed to OpenAI embeddings and PGVector. |
-| `LITBOT_VECTOR_COLLECTION_NAME` | `litbot_chunks` | LangChain PGVector collection name. |
+| `LITBOT_EMBEDDING_DIMENSIONS` | `1536` | Embedding dimensionality passed to OpenAI embeddings; must match `chunks.embedding vector(1536)` unless the migration changes too. |
 | `LITBOT_TOP_K` | `8` | Default number of chunks returned when `top_k` is not provided. |
-| `LITBOT_DATABASE_URL` | `postgresql://litbot:litbot@localhost:5432/litbot` | PostgreSQL database used by PGVector and lexical SQL. |
+| `LITBOT_DATABASE_URL` | `postgresql://litbot:litbot@localhost:5432/litbot` | PostgreSQL database used for first-party storage, vector search, and lexical SQL. |
+
+`LITBOT_VECTOR_COLLECTION_NAME` may still exist in older environments, but active retrieval no longer uses a LangChain PGVector collection name.
 
 ## Storage Baseline
 
-Retrieval reads from LangChain-owned PGVector tables rather than first-party `documents` or `chunks` tables.
+Retrieval reads from LitBot-owned tables created by `migrations/001_init.sql`.
 
 The active storage path is:
 
 1. Ingestion parses a source document and splits it into stable `TextChunk` records.
-2. Each `TextChunk` is converted to a LangChain `Document`.
-3. The LangChain `Document` is written into the configured PGVector collection.
-4. Retrieval reads the stored document text and JSONB metadata from `langchain_pg_embedding`, joined to `langchain_pg_collection` by collection UUID.
+2. Ingestion deletes the prior `documents` row for the same `source_id`; `ON DELETE CASCADE` removes its old chunks.
+3. Ingestion upserts source metadata into `documents` and gets the document primary key.
+4. Ingestion embeds chunk text with LangChain `OpenAIEmbeddings` in batches.
+5. Ingestion inserts rows directly into `chunks` with psycopg.
+6. Retrieval reads chunk text, metadata, and embeddings from `chunks`.
 
-The metadata stored on each LangChain document includes at least:
+The `documents` table stores source-level metadata, including:
+
+- `source_id`
+- `title`
+- `author`, `translator`, and `editor` when present
+- `publication_year`
+- `edition`
+- `genre`
+- `language`
+- `license`
+- `uri`
+- `version`
+- JSONB `metadata`
+- `content_hash`
+- `ingested_at`
+
+The `chunks` table stores retrievable evidence units, including:
 
 - `chunk_id`
+- `document_id`
 - `source_id`
 - `chunk_index`
+- `text`
 - `token_count`
 - `chunk_hash`
-- flattened source metadata such as work, author, title, genre, license, or custom sidecar fields when present
+- `embedding vector(1536)`
+- JSONB `metadata`
+- `created_at`
 
-The current implementation also has custom SQL that depends directly on LangChain's table layout. That coupling is part of the baseline.
+The chunk metadata includes flattened source metadata such as work, author, title, genre, license, and any custom sidecar fields when present. Retrieval filters operate against this chunk-level JSONB metadata.
+
+## Index Baseline
+
+The migration creates the indexes retrieval depends on:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS chunks_document_index_idx
+    ON chunks(document_id, chunk_index);
+CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw_idx
+    ON chunks USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS chunks_metadata_gin_idx
+    ON chunks USING gin (metadata jsonb_path_ops);
+CREATE INDEX IF NOT EXISTS chunks_text_fts_idx
+    ON chunks USING gin (to_tsvector('english', text));
+CREATE INDEX IF NOT EXISTS documents_metadata_gin_idx
+    ON documents USING gin (metadata jsonb_path_ops);
+```
+
+LitBot does not create lexical indexes at request time. The migration is the source of truth for retrieval schema and indexes.
 
 ## Chunking Context Feeding Retrieval
 
@@ -73,48 +117,61 @@ Retrieval quality depends on the current chunking baseline:
 
 ## Semantic Retrieval Pass
 
-The semantic pass uses LangChain PGVector:
+The semantic pass uses direct SQL over pgvector:
 
-- Vector store: `langchain_postgres.PGVector`.
 - Embeddings: `langchain_openai.OpenAIEmbeddings`.
-- Distance strategy: cosine distance.
-- Query method: `similarity_search_with_score`.
+- Stored vector column: `chunks.embedding`.
+- Distance operator: `<=>` with `vector_cosine_ops`.
 - Candidate count: `top_k * 3`.
 
-The vector store returns distances. LitBot converts each returned distance into a similarity-like score with:
+The query embeds the question first, converts the embedding to a pgvector literal, and orders by cosine distance:
 
-```text
-vector_score = max(0.0, 1.0 - distance)
+```sql
+SELECT chunk_id, source_id, text, metadata,
+       1 - (embedding <=> %s::vector) AS vector_score
+FROM chunks
+WHERE 1=1 -- plus metadata predicates when filters exist
+ORDER BY embedding <=> %s::vector
+LIMIT %s
 ```
 
-This conversion preserves the previous retriever's expectation that higher scores rank better.
+The raw vector score is:
+
+```text
+vector_score = 1 - cosine_distance
+```
+
+The HNSW index on `chunks.embedding` is intended to support this ordered nearest-neighbor query.
 
 ## Lexical Retrieval Pass
 
-The lexical pass is custom PostgreSQL SQL over the same LangChain PGVector table. It exists so exact names, quotations, and phrasing can compete with semantic matches.
-
-Before querying, LitBot ensures this GIN full-text index exists:
-
-```sql
-CREATE INDEX IF NOT EXISTS langchain_pg_embedding_document_fts_idx
-ON langchain_pg_embedding
-USING gin (to_tsvector('english', document))
-```
+The lexical pass is custom PostgreSQL SQL over `chunks.text`. It exists so exact names, quotations, and phrasing can compete with semantic matches.
 
 The lexical query:
 
-- joins `langchain_pg_embedding` to `langchain_pg_collection`;
-- restricts rows to the configured collection name;
 - applies metadata predicates when filters are present;
-- matches `to_tsvector('english', e.document)` against `plainto_tsquery('english', question)`;
+- matches `to_tsvector('english', text)` against `plainto_tsquery('english', question)`;
 - ranks matches with `ts_rank_cd`;
 - returns up to `top_k * 3` lexical candidates.
+
+Representative SQL:
+
+```sql
+SELECT chunk_id, source_id, text, metadata,
+       ts_rank_cd(to_tsvector('english', text),
+                  plainto_tsquery('english', %s)) AS lexical_score
+FROM chunks
+WHERE to_tsvector('english', text) @@ plainto_tsquery('english', %s)
+  -- plus metadata predicates when filters exist
+ORDER BY lexical_score DESC
+LIMIT %s
+```
 
 The current baseline uses PostgreSQL's English text search configuration and plain query parsing. It does not use phrase search, trigram search, fuzzy matching, synonym dictionaries, or custom literary-language dictionaries.
 
 ## Metadata Filter Handling
 
-Filter handling has two dialects because semantic and lexical retrieval use different APIs.
+Filter handling has one SQL translation path shared by semantic and lexical retrieval.
 
 ### Normalization
 
@@ -135,21 +192,28 @@ becomes:
 {"work": "Frankenstein"}
 ```
 
-### PGVector Filter Translation
-
-For the semantic pass, filters are translated into LangChain PGVector's JSONB filter dialect:
-
-- a single filter becomes `{field: {"$eq": value}}`;
-- multiple filters become an `$and` list of equality checks.
-
 ### SQL Filter Translation
 
-For the lexical pass, filters are translated into SQL predicates against `e.cmetadata`:
+Normalized filters are translated into SQL predicates against `chunks.metadata`:
 
-- scalar values use `e.cmetadata->>%s = %s` and compare as strings;
-- list or object values use JSONB containment with `e.cmetadata @> %s::jsonb`.
+- scalar values use `metadata->>%s = %s` and compare as strings;
+- list or object values use JSONB containment with `metadata @> %s::jsonb`.
 
-Both passes receive the same normalized filter object, but exact semantics may differ slightly because one path uses LangChain's filter dialect and the other uses direct SQL.
+For example, this filter:
+
+```json
+{"work": "Frankenstein", "tags": ["gothic"], "edition": {"volume": 1}}
+```
+
+produces predicates equivalent to:
+
+```sql
+metadata->>'work' = 'Frankenstein'
+AND metadata @> '{"tags": ["gothic"]}'::jsonb
+AND metadata @> '{"edition": {"volume": 1}}'::jsonb
+```
+
+The same predicates are applied to vector and lexical queries.
 
 ## Merge And Ranking Formula
 
@@ -157,22 +221,29 @@ After both retrieval passes finish, results are merged by chunk ID.
 
 The merge rules are:
 
-- A vector result starts with its converted vector score and no lexical score.
+- A vector result starts with its vector score and no lexical score.
 - A lexical-only result starts with `vector_score = 0.0` and its lexical score.
-- A chunk returned by both passes keeps one document payload and receives both scores.
+- A chunk returned by both passes keeps one row payload and receives both scores.
 - Missing scores are treated as `0.0` for ranking.
 
-The current combined score formula is:
+Before weighting, score sets are normalized independently:
 
 ```text
-combined_score = (0.75 * vector_score) + (0.25 * min(lexical_score, 1.0))
+normalized_vector = vector_score / vector_max
+normalized_lexical = lexical_score / lexical_max
+```
+
+The combined score formula is:
+
+```text
+combined_score = (0.75 * normalized_vector) + (0.25 * normalized_lexical)
 ```
 
 Important implications:
 
-- Semantic similarity is the dominant signal.
-- Lexical score contributes at most 25% of the total combined score because it is capped at `1.0` before weighting.
-- Lexical-only matches can outrank weak vector matches when their capped lexical contribution is stronger than the vector match's combined score.
+- Semantic similarity remains the dominant signal.
+- Raw PostgreSQL `ts_rank_cd` values are not clamped directly into the weighted sum; they are scaled relative to the best lexical candidate in the merged set.
+- Lexical-only matches can outrank weak vector matches when they are the best exact-text candidate.
 - The weights are hard-coded today, not configurable through settings.
 
 ## Returned Retrieval Payload
@@ -187,7 +258,13 @@ The final result is a list of `RetrievedChunk` objects. Each returned chunk incl
 - `combined_score`
 - `vector_score`, when present
 - `lexical_score`, when present
-- `reason`, currently defaulted to `hybrid vector/lexical match`
+- `reason`
+
+The `reason` field describes how the chunk was found:
+
+- `hybrid vector + lexical match`
+- `vector match only`
+- `lexical match only`
 
 The labels are generated only for the final top `k` rows after sorting. Generation and citation validation use these labels as the source identifiers exposed to the model.
 
@@ -199,7 +276,7 @@ After retrieval completes, the service logs a `retrieval_completed` event with:
 - number of chunks returned;
 - normalized filters.
 
-There are no persisted per-query retrieval diagnostics, no recall metrics, no stored rank traces, and no built-in explanation of whether a final chunk came from vector search, lexical search, or both beyond the optional score fields returned on each chunk.
+There are no persisted per-query retrieval diagnostics, no recall metrics, no stored rank traces, and no built-in dashboard. The returned chunk payload does include scores and `reason`, which can be used for lightweight debugging.
 
 ## Known Non-Baseline Features
 
@@ -215,7 +292,7 @@ The following are explicitly not part of the current retrieval baseline:
 - phrase-specific lexical search;
 - fuzzy matching or typo tolerance;
 - configurable retrieval weights;
-- first-party retrieval tables as the source of truth;
+- LangChain PGVector storage as the active source of truth;
 - persistent retrieval evaluation datasets;
 - retrieval dashboards or quality monitoring.
 
@@ -223,10 +300,9 @@ The following are explicitly not part of the current retrieval baseline:
 
 The current retrieval unit tests cover the core mechanics of the baseline:
 
-- PGVector metadata filter translation.
 - Dropping `None` filter values during normalization.
 - SQL metadata predicate generation for scalar, list, and object values.
-- Hybrid merge behavior, ranking, and final `S1`/`S2` label assignment.
+- Hybrid merge behavior, ranking, final `S1`/`S2` label assignment, and match reasons.
 
 These tests validate ranking mechanics and filter translation, but they do not measure retrieval quality against a golden corpus.
 
@@ -236,7 +312,8 @@ Future retrieval changes should be compared against this baseline before replaci
 
 - whether the candidate pool size changed from `top_k * 3`;
 - whether the `0.75` vector / `0.25` lexical weighting changed;
+- whether score normalization changed;
 - whether lexical scoring changed from PostgreSQL `ts_rank_cd`;
 - whether metadata filter semantics changed;
-- whether the storage source of truth changed away from LangChain PGVector tables;
+- whether the storage source of truth changed away from first-party `documents`/`chunks` tables;
 - whether evaluation now includes retrieval recall, citation precision, answer groundedness, latency, or cost.
