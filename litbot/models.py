@@ -81,7 +81,14 @@ class RetrievedChunk(LitBotModel):
 class ChatRequest(LitBotModel):
     question: str
     filters: dict[str, Any] = Field(default_factory=dict)
-    top_k: int | None = None
+    top_k: int | None = Field(default=None, ge=1, le=50)
+
+    @field_validator("question")
+    @classmethod
+    def _require_question(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
 
 
 class Citation(LitBotModel):

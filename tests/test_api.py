@@ -19,3 +19,10 @@ def test_chat_route_remains_registered() -> None:
     }
 
     assert ("/chat", ("POST",)) in routes
+
+
+def test_chat_request_rejects_blank_question_before_runtime_services() -> None:
+    with TestClient(app) as client:
+        response = client.post("/chat", json={"question": "   "})
+
+    assert response.status_code == 422

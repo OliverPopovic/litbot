@@ -1,7 +1,10 @@
+import pytest
+
 from litbot.retrieval.service import (
     RetrievalService,
     _metadata_where_clause,
     _normalize_filters,
+    _normalize_top_k,
 )
 
 
@@ -9,6 +12,16 @@ def test_normalize_filters_drops_none_values_before_translation() -> None:
     filters = _normalize_filters({"work": "Frankenstein", "author": None})
 
     assert filters == {"work": "Frankenstein"}
+
+
+def test_normalize_top_k_uses_default_only_when_unspecified() -> None:
+    assert _normalize_top_k(None, 8) == 8
+    assert _normalize_top_k(3, 8) == 3
+
+
+def test_normalize_top_k_rejects_non_positive_limits() -> None:
+    with pytest.raises(ValueError, match="top_k must be at least 1"):
+        _normalize_top_k(0, 8)
 
 
 def test_metadata_where_clause_handles_jsonb_and_scalar_filters() -> None:

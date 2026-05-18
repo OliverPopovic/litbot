@@ -8,13 +8,19 @@ from psycopg_pool import ConnectionPool
 from litbot.config import Settings, get_settings
 
 _pool: ConnectionPool | None = None
+_pool_conninfo: str | None = None
 
 
 def get_pool(settings: Settings | None = None) -> ConnectionPool:
     """Return the process-wide PostgreSQL connection pool."""
 
     global _pool
+    global _pool_conninfo
     settings = settings or get_settings()
+    if _pool is not None and _pool_conninfo != settings.database_url:
+        _pool.close()
+        _pool = None
+        _pool_conninfo = None
     if _pool is None:
         _pool = ConnectionPool(
             conninfo=settings.database_url,
@@ -23,6 +29,7 @@ def get_pool(settings: Settings | None = None) -> ConnectionPool:
             max_size=10,
             open=True,
         )
+        _pool_conninfo = settings.database_url
     return _pool
 
 
@@ -30,9 +37,11 @@ def close_pool() -> None:
     """Close the process-wide PostgreSQL connection pool, if it was opened."""
 
     global _pool
+    global _pool_conninfo
     if _pool is not None:
         _pool.close()
         _pool = None
+        _pool_conninfo = None
 
 
 @contextmanager

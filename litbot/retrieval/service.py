@@ -25,7 +25,7 @@ class RetrievalService:
         top_k: int | None = None,
     ) -> list[RetrievedChunk]:
         filters = _normalize_filters(filters)
-        limit = top_k or self.settings.top_k
+        limit = _normalize_top_k(top_k, self.settings.top_k)
 
         query_vector = embed_query(question, self.settings)
         vector_rows = self._vector_search(query_vector, filters, limit * 3)
@@ -140,6 +140,13 @@ class RetrievalService:
 
 def _normalize_filters(filters: dict[str, Any] | None) -> dict[str, Any]:
     return {key: value for key, value in (filters or {}).items() if value is not None}
+
+
+def _normalize_top_k(top_k: int | None, default: int) -> int:
+    limit = default if top_k is None else top_k
+    if limit < 1:
+        raise ValueError("top_k must be at least 1")
+    return limit
 
 
 def _metadata_where_clause(filters: dict[str, Any]) -> tuple[str, list[Any]]:
