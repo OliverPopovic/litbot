@@ -9,14 +9,15 @@ LitBot currently uses a single-pass hybrid retrieval flow over the first-party `
 1. Normalize user metadata filters by dropping `None` values.
 2. Embed the user question with LangChain `OpenAIEmbeddings`.
 3. Run semantic search with pgvector cosine distance over `chunks.embedding`.
-4. Run lexical search with PostgreSQL full-text search over `chunks.text`.
-5. Merge both result sets by `chunk_id`.
-6. Normalize vector and lexical score sets independently.
-7. Compute one weighted combined score per chunk.
-8. Sort by combined score.
-9. Return the top `k` chunks labeled `S1`, `S2`, and so on.
+4. Clean noisy terms from the full-text lexical query.
+5. Run full-text lexical search with PostgreSQL `to_tsvector` / `plainto_tsquery`.
+6. Run trigram lexical search with PostgreSQL `pg_trgm` `word_similarity`.
+7. Merge semantic, full-text, and trigram result sets by `chunk_id`.
+8. Rank merged candidates with Reciprocal Rank Fusion.
+9. Optionally expand adjacent same-document neighbor chunks when configured.
+10. Return the top `k` chunks labeled `S1`, `S2`, and so on.
 
-There is no query rewriting, query decomposition, reranker, diversity pass, feedback loop, or multi-step retrieval planner in the current baseline.
+There is no LLM query rewriting, query decomposition, reranker, diversity pass, feedback loop, or multi-step retrieval planner in the current baseline.
 
 ## Runtime Entry Points
 
@@ -37,13 +38,19 @@ The current retrieval-related defaults are:
 | `LITBOT_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model used by LangChain OpenAI embeddings. |
 | `LITBOT_EMBEDDING_DIMENSIONS` | `1536` | Embedding dimensionality passed to OpenAI embeddings; must match `chunks.embedding vector(1536)` unless the migration changes too. |
 | `LITBOT_TOP_K` | `8` | Default number of chunks returned when `top_k` is not provided. |
+| `LITBOT_RETRIEVAL_CANDIDATE_MULTIPLIER` | `8` | Multiplier used to expand each retrieval lane's candidate pool before fusion. |
+| `LITBOT_RETRIEVAL_MIN_CANDIDATES` | `50` | Minimum candidates requested from each retrieval lane. |
+| `LITBOT_RETRIEVAL_MAX_CANDIDATES` | `200` | Maximum candidates requested from each retrieval lane. |
+| `LITBOT_RETRIEVAL_RRF_K` | `60` | Reciprocal Rank Fusion constant. |
+| `LITBOT_RETRIEVAL_INCLUDE_NEIGHBORS` | `false` | Whether to include adjacent same-document chunks after fusion. |
+| `LITBOT_RETRIEVAL_NEIGHBOR_WINDOW` | `1` | Neighbor distance on each side when neighbor expansion is enabled. |
 | `LITBOT_DATABASE_URL` | `postgresql://litbot:litbot@localhost:5432/litbot` | PostgreSQL database used for first-party storage, vector search, and lexical SQL. |
 
 `LITBOT_VECTOR_COLLECTION_NAME` may still exist in older environments, but active retrieval no longer uses a LangChain PGVector collection name.
 
 ## Storage Baseline
 
-Retrieval reads from LitBot-owned tables created by `migrations/001_init.sql`.
+Retrieval reads from LitBot-owned tables created by `migrations/001_init.sql`. Trigram search also depends on `migrations/002_trigram_index.sql`.
 
 The active storage path is:
 
@@ -102,6 +109,13 @@ CREATE INDEX IF NOT EXISTS documents_metadata_gin_idx
     ON documents USING gin (metadata jsonb_path_ops);
 ```
 
+The trigram migration adds the fuzzy lexical index:
+
+```sql
+CREATE INDEX IF NOT EXISTS chunks_text_trgm_idx
+    ON chunks USING gin (text gin_trgm_ops);
+```
+
 LitBot does not create lexical indexes at request time. The migration is the source of truth for retrieval schema and indexes.
 
 ## Chunking Context Feeding Retrieval
@@ -122,7 +136,7 @@ The semantic pass uses direct SQL over pgvector:
 - Embeddings: `langchain_openai.OpenAIEmbeddings`.
 - Stored vector column: `chunks.embedding`.
 - Distance operator: `<=>` with `vector_cosine_ops`.
-- Candidate count: `top_k * 3`.
+- Candidate count: `min(max(top_k * 8, 50), 200)` by default.
 
 The query embeds the question first, converts the embedding to a pgvector literal, and orders by cosine distance:
 
@@ -145,14 +159,21 @@ The HNSW index on `chunks.embedding` is intended to support this ordered nearest
 
 ## Lexical Retrieval Pass
 
-The lexical pass is custom PostgreSQL SQL over `chunks.text`. It exists so exact names, quotations, and phrasing can compete with semantic matches.
+The full-text lexical pass is custom PostgreSQL SQL over `chunks.text`. It exists so names, quotations, and phrasing can compete with semantic matches.
+
+Before full-text search, LitBot cleans the query:
+
+- tokenizes the question with a simple alphanumeric regex;
+- removes small question/utility words such as `who`, `what`, `where`, `find`, `retrieve`, `evidence`, `say`, and `says`;
+- removes terms already supplied by a `work` metadata filter, such as `moby` and `dick` when `filters.work` is `Moby-Dick`;
+- falls back to the original question if fewer than two useful terms remain.
 
 The lexical query:
 
 - applies metadata predicates when filters are present;
-- matches `to_tsvector('english', text)` against `plainto_tsquery('english', question)`;
+- matches `to_tsvector('english', text)` against `plainto_tsquery('english', cleaned_query)`;
 - ranks matches with `ts_rank_cd`;
-- returns up to `top_k * 3` lexical candidates.
+- returns up to the configured candidate limit.
 
 Representative SQL:
 
@@ -167,7 +188,32 @@ ORDER BY lexical_score DESC
 LIMIT %s
 ```
 
-The current baseline uses PostgreSQL's English text search configuration and plain query parsing. It does not use phrase search, trigram search, fuzzy matching, synonym dictionaries, or custom literary-language dictionaries.
+The current baseline uses PostgreSQL's English text search configuration and plain query parsing. It does not use synonym dictionaries or custom literary-language dictionaries.
+
+## Trigram Retrieval Pass
+
+The trigram pass uses the `pg_trgm` extension for fuzzy phrase-style lexical recall. It is intended to help with short quotes, names, punctuation differences, and slightly misremembered wording.
+
+The trigram query:
+
+- applies the same metadata predicates as the other retrieval lanes;
+- scores chunks with `word_similarity(question, text)`;
+- orders by `trigram_score DESC`;
+- returns up to the configured candidate limit.
+
+Representative SQL:
+
+```sql
+SELECT chunk_id, source_id, text, metadata,
+       word_similarity(%s, text) AS trigram_score
+FROM chunks
+WHERE word_similarity(%s, text) > 0
+  -- plus metadata predicates when filters exist
+ORDER BY trigram_score DESC
+LIMIT %s
+```
+
+The trigram lane is always enabled in the current baseline. The `chunks_text_trgm_idx` GIN index supports this style of fuzzy text matching.
 
 ## Metadata Filter Handling
 
@@ -213,38 +259,50 @@ AND metadata @> '{"tags": ["gothic"]}'::jsonb
 AND metadata @> '{"edition": {"volume": 1}}'::jsonb
 ```
 
-The same predicates are applied to vector and lexical queries.
+The same predicates are applied to vector, full-text lexical, trigram, and neighbor queries.
 
 ## Merge And Ranking Formula
 
-After both retrieval passes finish, results are merged by chunk ID.
+After all retrieval passes finish, results are merged by chunk ID.
 
 The merge rules are:
 
 - A vector result starts with its vector score and no lexical score.
-- A lexical-only result starts with `vector_score = 0.0` and its lexical score.
-- A chunk returned by both passes keeps one row payload and receives both scores.
-- Missing scores are treated as `0.0` for ranking.
+- A full-text-only result starts with `vector_score = 0.0`, no trigram score, and its lexical score.
+- A trigram-only result starts with `vector_score = 0.0`, no full-text lexical score, and its trigram score.
+- A chunk returned by multiple passes keeps one row payload and receives each available raw score.
+- Raw scores are preserved for diagnostics, but they are not combined directly.
 
-Before weighting, score sets are normalized independently:
+The ranking score is Reciprocal Rank Fusion over lane ranks:
 
 ```text
-normalized_vector = vector_score / vector_max
-normalized_lexical = lexical_score / lexical_max
+combined_score = sum(1 / (rrf_k + lane_rank))
 ```
 
-The combined score formula is:
+With the default `rrf_k = 60`, a chunk ranked first in one lane receives:
 
 ```text
-combined_score = (0.75 * normalized_vector) + (0.25 * normalized_lexical)
+1 / (60 + 1)
 ```
 
 Important implications:
 
-- Semantic similarity remains the dominant signal.
-- Raw PostgreSQL `ts_rank_cd` values are not clamped directly into the weighted sum; they are scaled relative to the best lexical candidate in the merged set.
-- Lexical-only matches can outrank weak vector matches when they are the best exact-text candidate.
-- The weights are hard-coded today, not configurable through settings.
+- A chunk found by multiple lanes receives multiple rank contributions.
+- Vector, full-text, and trigram scores do not need to share a numeric scale.
+- Ties are possible for single-lane candidates with the same lane rank.
+- The fusion constant is configurable through `LITBOT_RETRIEVAL_RRF_K`.
+
+## Optional Neighbor Expansion
+
+Neighbor expansion is implemented but disabled by default. When `LITBOT_RETRIEVAL_INCLUDE_NEIGHBORS=true`, LitBot:
+
+1. takes the fused top candidates;
+2. finds same-document chunks with `chunk_index ± LITBOT_RETRIEVAL_NEIGHBOR_WINDOW`;
+3. deduplicates by `chunk_id`;
+4. interleaves neighbor chunks after their seed chunk;
+5. relabels the final top `k`.
+
+Neighbor chunks receive `reason = "neighbor context"` and do not receive vector, lexical, or trigram scores. In the latest 40-question retrieval eval, neighbor expansion reduced hit@8, so it remains default-off.
 
 ## Returned Retrieval Payload
 
@@ -258,15 +316,40 @@ The final result is a list of `RetrievedChunk` objects. Each returned chunk incl
 - `combined_score`
 - `vector_score`, when present
 - `lexical_score`, when present
+- `trigram_score`, when present
 - `reason`
 
 The `reason` field describes how the chunk was found:
 
-- `hybrid vector + lexical match`
-- `vector match only`
-- `lexical match only`
+- `vector match`
+- `lexical match`
+- `trigram match`
+- combinations such as `vector + lexical + trigram match`
+- `neighbor context` when returned only through neighbor expansion
 
 The labels are generated only for the final top `k` rows after sorting. Generation and citation validation use these labels as the source identifiers exposed to the model.
+
+## Retrieval Evaluation Baseline
+
+The current retrieval benchmark is `tests/fixtures/retrieval_golden.jsonl`, scored with:
+
+```bash
+uv run litbot eval-retrieval tests/fixtures/retrieval_golden.jsonl > retrieval_eval.json
+```
+
+The latest default-off-neighbor result is:
+
+```json
+{
+  "total": 40,
+  "hit_at_1": 21,
+  "hit_at_3": 23,
+  "hit_at_k": 29,
+  "mean_reciprocal_rank": 0.5739880952380954
+}
+```
+
+This means 29 of 40 golden questions found the expected evidence somewhere in the top 8 retrieved chunks. The eval measures retrieval evidence coverage, not final answer quality.
 
 ## Observability Baseline
 
@@ -285,15 +368,12 @@ The following are explicitly not part of the current retrieval baseline:
 - cross-encoder reranking;
 - LLM reranking;
 - Maximal Marginal Relevance or diversity ranking;
-- query rewriting;
+- LLM query rewriting;
 - query decomposition;
 - multi-hop retrieval;
 - retry-on-insufficient-evidence retrieval;
-- phrase-specific lexical search;
-- fuzzy matching or typo tolerance;
 - configurable retrieval weights;
 - LangChain PGVector storage as the active source of truth;
-- persistent retrieval evaluation datasets;
 - retrieval dashboards or quality monitoring.
 
 ## Baseline Tests
@@ -302,18 +382,24 @@ The current retrieval unit tests cover the core mechanics of the baseline:
 
 - Dropping `None` filter values during normalization.
 - SQL metadata predicate generation for scalar, list, and object values.
-- Hybrid merge behavior, ranking, final `S1`/`S2` label assignment, and match reasons.
+- Cleaned lexical query construction.
+- Three-lane RRF merge behavior, final label assignment, raw score preservation, and match reasons.
+- Config-gated neighbor expansion behavior.
+- Corpus front-matter cleanup.
+- Trigram index migration presence.
 
-These tests validate ranking mechanics and filter translation, but they do not measure retrieval quality against a golden corpus.
+These tests validate ranking mechanics and filter translation. Retrieval quality is measured separately by the golden JSONL fixture and `eval-retrieval` command.
 
 ## Change Control Guidance
 
 Future retrieval changes should be compared against this baseline before replacing it. In particular, changes should record:
 
 - whether the candidate pool size changed from `top_k * 3`;
-- whether the `0.75` vector / `0.25` lexical weighting changed;
-- whether score normalization changed;
+- whether the configured candidate-pool limits changed;
+- whether RRF behavior or `LITBOT_RETRIEVAL_RRF_K` changed;
 - whether lexical scoring changed from PostgreSQL `ts_rank_cd`;
+- whether trigram scoring changed from PostgreSQL `word_similarity`;
+- whether neighbor expansion defaults changed;
 - whether metadata filter semantics changed;
 - whether the storage source of truth changed away from first-party `documents`/`chunks` tables;
 - whether evaluation now includes retrieval recall, citation precision, answer groundedness, latency, or cost.
