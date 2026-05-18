@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     retrieval_min_candidates: int = 50
     retrieval_max_candidates: int = 200
     retrieval_rrf_k: int = 60
+    retrieval_include_neighbors: bool = False
+    retrieval_neighbor_window: int = 1
     prompt_version: str = "litbot-grounded-v1"
     request_timeout_seconds: float = 60.0
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")

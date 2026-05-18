@@ -18,7 +18,8 @@ monitoring.
 - Retrieves with hybrid search over LitBot-owned tables:
   - pgvector cosine search over `chunks.embedding` for semantic matching.
   - PostgreSQL full-text search over `chunks.text` for names, quotes, and exact phrasing.
-  - Reciprocal Rank Fusion over semantic and lexical candidate ranks.
+  - PostgreSQL trigram search over `chunks.text` for fuzzy phrase and quote matching.
+  - Reciprocal Rank Fusion over semantic, full-text, and trigram candidate ranks.
 - Sends retrieved chunks to an OpenAI chat model through LangChain.
 - Requires structured model output containing `answer`, `citation_map`, and `unsupported`.
 - Validates citation labels against the retrieved chunks before returning the response.
@@ -89,6 +90,7 @@ Apply the database schema:
 
 ```bash
 psql $LITBOT_DATABASE_URL -f migrations/001_init.sql
+psql $LITBOT_DATABASE_URL -f migrations/002_trigram_index.sql
 ```
 
 ## Ingest Documents
@@ -194,6 +196,10 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 - `LITBOT_RETRIEVAL_MIN_CANDIDATES`: minimum candidates per retrieval lane. Default: `50`.
 - `LITBOT_RETRIEVAL_MAX_CANDIDATES`: maximum candidates per retrieval lane. Default: `200`.
 - `LITBOT_RETRIEVAL_RRF_K`: Reciprocal Rank Fusion constant. Default: `60`.
+- `LITBOT_RETRIEVAL_INCLUDE_NEIGHBORS`: include adjacent chunks around retrieved seeds. Default:
+  `false`.
+- `LITBOT_RETRIEVAL_NEIGHBOR_WINDOW`: adjacent chunk distance when neighbor expansion is enabled.
+  Default: `1`.
 - `LITBOT_PROMPT_VERSION`: prompt version label returned in responses.
 
 ## Current Retrieval And Generation Flow
@@ -201,14 +207,15 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 1. The user question is embedded with LangChain `OpenAIEmbeddings`.
 2. Metadata filters are normalized and translated into SQL predicates against `chunks.metadata`.
 3. Semantic search runs a pgvector cosine-distance query against `chunks.embedding`.
-4. Lexical search runs PostgreSQL full-text search against `chunks.text`.
-5. Vector and lexical result sets are merged by `chunk_id`.
-6. Chunks are ranked with Reciprocal Rank Fusion over vector and lexical ranks.
-7. Final chunks are labeled `S1`, `S2`, etc., and each chunk records whether it came from vector,
-   lexical, or hybrid matching.
-8. LangChain builds a chat prompt containing the question and retrieved source payload.
-9. `ChatOpenAI.with_structured_output()` returns typed answer data.
-10. Citation labels in the answer or citation map are validated against retrieved chunks.
+4. Full-text lexical search runs PostgreSQL full-text search against `chunks.text`.
+5. Trigram lexical search runs PostgreSQL fuzzy phrase matching against `chunks.text`.
+6. Vector, full-text, and trigram result sets are merged by `chunk_id`.
+7. Chunks are ranked with Reciprocal Rank Fusion over the candidate ranks.
+8. If enabled, neighbor expansion adds adjacent same-document chunks around retrieved seeds.
+9. Final chunks are labeled `S1`, `S2`, etc., and each chunk records which lane found it.
+10. LangChain builds a chat prompt containing the question and retrieved source payload.
+11. `ChatOpenAI.with_structured_output()` returns typed answer data.
+12. Citation labels in the answer or citation map are validated against retrieved chunks.
 
 ## Implementation Plan
 

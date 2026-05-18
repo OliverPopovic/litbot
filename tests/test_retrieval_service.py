@@ -1,8 +1,10 @@
 import pytest
 
+from litbot.config import Settings
 from litbot.retrieval.service import (
     RetrievalService,
     _candidate_limit,
+    _clean_lexical_query,
     _metadata_where_clause,
     _normalize_filters,
     _normalize_top_k,
@@ -45,6 +47,21 @@ def test_candidate_limit_rejects_invalid_settings() -> None:
 def test_rrf_score_uses_rank_and_constant() -> None:
     assert _rrf_score(1, 60) == pytest.approx(1 / 61)
     assert _rrf_score(10, 60) == pytest.approx(1 / 70)
+
+
+def test_clean_lexical_query_removes_boilerplate_and_filtered_work_terms() -> None:
+    query = _clean_lexical_query(
+        "Who says Call me Ishmael in Moby-Dick?",
+        {"work": "Moby-Dick"},
+    )
+
+    assert query == "call me ishmael"
+
+
+def test_clean_lexical_query_falls_back_when_too_short() -> None:
+    question = "Who says it?"
+
+    assert _clean_lexical_query(question, {}) == question
 
 
 def test_metadata_where_clause_handles_jsonb_and_scalar_filters() -> None:
@@ -110,13 +127,14 @@ def test_merge_assigns_labels_after_rrf_ranking() -> None:
     chunks = service._merge(
         vector_rows=[vector_row],
         lexical_rows=[lexical_row],
+        trigram_rows=[],
         limit=2,
     )
 
     assert [chunk.chunk_id for chunk in chunks] == ["vector", "lexical"]
     assert [chunk.label for chunk in chunks] == ["S1", "S2"]
-    assert chunks[0].reason == "vector match only"
-    assert chunks[1].reason == "lexical match only"
+    assert chunks[0].reason == "vector match"
+    assert chunks[1].reason == "lexical match"
     assert chunks[0].combined_score == chunks[1].combined_score == pytest.approx(1 / 61)
 
 
@@ -144,15 +162,97 @@ def test_merge_prefers_shared_rrf_candidates_and_preserves_raw_scores() -> None:
         "metadata": {},
         "lexical_score": 0.3,
     }
+    shared_trigram_row = {
+        "chunk_id": "shared",
+        "source_id": "source",
+        "text": "Shared match.",
+        "metadata": {},
+        "trigram_score": 0.4,
+    }
 
     chunks = service._merge(
         vector_rows=[vector_only_row, shared_vector_row],
         lexical_rows=[shared_lexical_row],
+        trigram_rows=[shared_trigram_row],
         limit=2,
     )
 
     assert [chunk.chunk_id for chunk in chunks] == ["shared", "vector"]
-    assert chunks[0].reason == "hybrid vector + lexical match"
+    assert chunks[0].reason == "vector + lexical + trigram match"
     assert chunks[0].vector_score == 0.2
     assert chunks[0].lexical_score == 0.3
-    assert chunks[0].combined_score == pytest.approx(1 / 62 + 1 / 61)
+    assert chunks[0].trigram_score == 0.4
+    assert chunks[0].combined_score == pytest.approx(1 / 62 + 1 / 61 + 1 / 61)
+
+
+def test_expand_neighbors_is_config_gated_by_default() -> None:
+    settings = Settings(retrieval_include_neighbors=False)
+
+    assert not settings.retrieval_include_neighbors
+    assert settings.retrieval_neighbor_window == 1
+
+
+def test_expand_neighbors_interleaves_adjacent_chunks() -> None:
+    service = object.__new__(RetrievalService)
+    service.settings = Settings(retrieval_include_neighbors=True, retrieval_neighbor_window=1)
+    service.conn = FakeNeighborConnection()
+    seed = document_to_retrieved_chunk(
+        {
+            "chunk_id": "seed",
+            "source_id": "source",
+            "text": "Seed text.",
+            "metadata": {"work": "Work"},
+        },
+        combined_score=1.0,
+        reason="vector match",
+    )
+    other = document_to_retrieved_chunk(
+        {
+            "chunk_id": "other",
+            "source_id": "source",
+            "text": "Other text.",
+            "metadata": {"work": "Work"},
+        },
+        combined_score=0.5,
+        reason="vector match",
+    )
+
+    chunks = service._expand_neighbors([seed, other], {"work": "Work"}, limit=3)
+
+    assert [chunk.chunk_id for chunk in chunks] == ["seed", "before", "after"]
+    assert [chunk.label for chunk in chunks] == ["S1", "S2", "S3"]
+    assert chunks[1].reason == "neighbor context"
+
+
+class FakeNeighborConnection:
+    def execute(self, _query, _params):
+        return FakeRows(
+            [
+                {
+                    "seed_chunk_id": "seed",
+                    "distance": 1,
+                    "chunk_index": 1,
+                    "chunk_id": "before",
+                    "source_id": "source",
+                    "text": "Before text.",
+                    "metadata": {"work": "Work"},
+                },
+                {
+                    "seed_chunk_id": "seed",
+                    "distance": 1,
+                    "chunk_index": 3,
+                    "chunk_id": "after",
+                    "source_id": "source",
+                    "text": "After text.",
+                    "metadata": {"work": "Work"},
+                },
+            ]
+        )
+
+
+class FakeRows:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def fetchall(self):
+        return self.rows

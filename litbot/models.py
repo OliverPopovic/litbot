@@ -76,6 +76,7 @@ class RetrievedChunk(LitBotModel):
     reason: str
     vector_score: float | None = None
     lexical_score: float | None = None
+    trigram_score: float | None = None
 
 
 class ChatRequest(LitBotModel):

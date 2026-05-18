@@ -117,6 +117,14 @@ DEFAULT_PUBLIC_DOMAIN_WORKS: tuple[CorpusWork, ...] = (
 
 START_RE = re.compile(r"\*\*\*\s*START OF (?:THE|THIS) PROJECT GUTENBERG EBOOK", re.I)
 END_RE = re.compile(r"\*\*\*\s*END OF (?:THE|THIS) PROJECT GUTENBERG EBOOK", re.I)
+FRONT_MATTER_RE = re.compile(
+    r"\b(contents|illustrations|list of illustrations|preface|introduction|etymology|extracts)\b",
+    re.I,
+)
+TEXT_START_RE = re.compile(
+    r"(?m)^\s*(chapter|act|book)\s+(?:[ivxlcdm]+|\d+)\b[^\n]*$",
+    re.I,
+)
 
 
 def fetch_public_domain_corpus(
@@ -128,6 +136,7 @@ def fetch_public_domain_corpus(
     for work in works:
         raw_text = _download_text(work.url)
         text = strip_gutenberg_boilerplate(raw_text)
+        text = strip_front_matter(text)
         text_path = target / work.filename
         metadata_path = text_path.with_suffix(text_path.suffix + ".json")
         text_path.write_text(text, encoding="utf-8")
@@ -156,6 +165,28 @@ def strip_gutenberg_boilerplate(text: str) -> str:
             break
 
     return "\n".join(lines[start:end]).strip() + "\n"
+
+
+def strip_front_matter(text: str) -> str:
+    """Remove obvious non-literary front matter before an early chapter/act/book marker."""
+
+    search_window = text[:30000]
+    for match in TEXT_START_RE.finditer(search_window):
+        preceding = search_window[: match.start()]
+        if not FRONT_MATTER_RE.search(preceding):
+            continue
+        if _next_nonblank_line_is_text_start(search_window, match.end()):
+            continue
+        return text[match.start() :].lstrip()
+    return text
+
+
+def _next_nonblank_line_is_text_start(text: str, start: int) -> bool:
+    for line in text[start:].splitlines():
+        if not line.strip():
+            continue
+        return TEXT_START_RE.match(line) is not None
+    return False
 
 
 def metadata_for_work(work: CorpusWork) -> dict[str, object]:

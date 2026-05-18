@@ -1,4 +1,9 @@
-from litbot.corpus import CorpusWork, metadata_for_work, strip_gutenberg_boilerplate
+from litbot.corpus import (
+    CorpusWork,
+    metadata_for_work,
+    strip_front_matter,
+    strip_gutenberg_boilerplate,
+)
 
 
 def test_strip_gutenberg_boilerplate_removes_header_and_footer() -> None:
@@ -14,6 +19,27 @@ Footer line
 """
 
     assert strip_gutenberg_boilerplate(text) == "Chapter 1\nBody text.\n"
+
+
+def test_strip_front_matter_removes_obvious_contents_before_chapter() -> None:
+    text = """
+CONTENTS
+
+Chapter I
+Chapter II
+
+CHAPTER I. A Beginning
+
+Real story text.
+"""
+
+    assert strip_front_matter(text) == "CHAPTER I. A Beginning\n\nReal story text.\n"
+
+
+def test_strip_front_matter_keeps_text_without_front_matter_marker() -> None:
+    text = "A prefatory-looking sentence.\n\nCHAPTER I. A Beginning\n\nReal story text.\n"
+
+    assert strip_front_matter(text) == text
 
 
 def test_metadata_for_work_generates_ingestion_sidecar_shape() -> None:
