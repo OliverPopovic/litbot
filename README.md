@@ -205,6 +205,17 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
   - ~~Provide a lightweight JSONL evaluator for answer/citation/unsupported counts.~~
   - Add a curated golden set with expected retrieval targets and citation expectations.
   - Add quality checks for groundedness, quote accuracy, and retrieval recall.
+- Broaden regression coverage around runtime boundaries.
+  - Add mocked end-to-end `/chat` route tests that exercise request validation, retrieval,
+    generation, trace IDs, and response serialization without requiring live OpenAI or Postgres.
+  - Add database-backed integration tests for migrations, ingestion idempotency, metadata filters,
+    vector/lexical retrieval, and connection-pool lifecycle behavior.
+  - Keep unit tests for settings, request models, retrieval ranking, and citation validation close
+    to the modules they protect.
+- Harden API error handling.
+  - Expand FastAPI exception handlers beyond the generic 500 handler to cover validation,
+    database, retrieval, generation, and citation-validation failures with predictable response
+    bodies and trace-aware logging.
 - Populate database.
   - ~~Provide sample public-domain corpus files and sidecar metadata.~~
   - ~~Provide `litbot ingest` and `litbot reindex` commands.~~
