@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1536
     vector_collection_name: str = "litbot_chunks"
     top_k: int = 8
+    retrieval_candidate_multiplier: int = 8
+    retrieval_min_candidates: int = 50
+    retrieval_max_candidates: int = 200
+    retrieval_rrf_k: int = 60
     prompt_version: str = "litbot-grounded-v1"
     request_timeout_seconds: float = 60.0
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")

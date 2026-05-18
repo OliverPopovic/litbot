@@ -26,10 +26,16 @@ class RetrievalService:
     ) -> list[RetrievedChunk]:
         filters = _normalize_filters(filters)
         limit = _normalize_top_k(top_k, self.settings.top_k)
+        candidate_limit = _candidate_limit(
+            limit,
+            multiplier=self.settings.retrieval_candidate_multiplier,
+            minimum=self.settings.retrieval_min_candidates,
+            maximum=self.settings.retrieval_max_candidates,
+        )
 
         query_vector = embed_query(question, self.settings)
-        vector_rows = self._vector_search(query_vector, filters, limit * 3)
-        lexical_rows = self._lexical_search(question, filters, limit * 3)
+        vector_rows = self._vector_search(query_vector, filters, candidate_limit)
+        lexical_rows = self._lexical_search(question, filters, candidate_limit)
         merged = self._merge(vector_rows, lexical_rows, limit)
 
         logger.info("retrieval_completed", top_k=limit, returned=len(merged), filters=filters)
@@ -87,30 +93,26 @@ class RetrievalService:
         limit: int,
     ) -> list[RetrievedChunk]:
         by_id: dict[str, dict] = {}
+        rank_scores: dict[str, float] = {}
+        rrf_k = getattr(getattr(self, "settings", None), "retrieval_rrf_k", 60)
 
-        for row in vector_rows:
-            by_id[row["chunk_id"]] = {**row, "lexical_score": None}
+        for rank, row in enumerate(vector_rows, start=1):
+            cid = row["chunk_id"]
+            by_id[cid] = {**row, "lexical_score": None}
+            rank_scores[cid] = rank_scores.get(cid, 0.0) + _rrf_score(rank, rrf_k)
 
-        for row in lexical_rows:
+        for rank, row in enumerate(lexical_rows, start=1):
             cid = row["chunk_id"]
             if cid in by_id:
                 by_id[cid]["lexical_score"] = row["lexical_score"]
             else:
                 by_id[cid] = {**row, "vector_score": 0.0}
-
-        # Normalize each score set to [0, 1] before combining so they're
-        # on the same scale. Raw ts_rank_cd values are unbounded upward.
-        v_scores = [row.get("vector_score") or 0.0 for row in by_id.values()]
-        l_scores = [row["lexical_score"] or 0.0 for row in by_id.values()]
-        v_max = max(max(v_scores), 1.0) if v_scores else 1.0
-        l_max = max(l_scores) if l_scores else 1.0
+            rank_scores[cid] = rank_scores.get(cid, 0.0) + _rrf_score(rank, rrf_k)
 
         ranked: list[RetrievedChunk] = []
         for row in by_id.values():
-            v = (row.get("vector_score") or 0.0) / (v_max or 1.0)
             lexical_score = row.get("lexical_score") or 0.0
-            lexical_normalized = lexical_score / (l_max or 1.0)
-            combined = 0.75 * v + 0.25 * lexical_normalized
+            combined = rank_scores[row["chunk_id"]]
 
             # Describe how this chunk was actually found.
             has_v = (row.get("vector_score") or 0.0) > 0
@@ -147,6 +149,24 @@ def _normalize_top_k(top_k: int | None, default: int) -> int:
     if limit < 1:
         raise ValueError("top_k must be at least 1")
     return limit
+
+
+def _candidate_limit(top_k: int, *, multiplier: int, minimum: int, maximum: int) -> int:
+    if multiplier < 1:
+        raise ValueError("retrieval_candidate_multiplier must be at least 1")
+    if minimum < 1:
+        raise ValueError("retrieval_min_candidates must be at least 1")
+    if maximum < minimum:
+        raise ValueError("retrieval_max_candidates must be greater than or equal to minimum")
+    return min(max(top_k * multiplier, minimum), maximum)
+
+
+def _rrf_score(rank: int, rrf_k: int) -> float:
+    if rank < 1:
+        raise ValueError("rank must be at least 1")
+    if rrf_k < 1:
+        raise ValueError("retrieval_rrf_k must be at least 1")
+    return 1 / (rrf_k + rank)
 
 
 def _metadata_where_clause(filters: dict[str, Any]) -> tuple[str, list[Any]]:

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Annotated
 
@@ -7,8 +8,10 @@ from dotenv import load_dotenv
 
 from litbot.api.main import app as fastapi_app
 from litbot.config import get_settings
+from litbot.corpus import fetch_public_domain_corpus
 from litbot.db import close_pool, get_connection
 from litbot.evaluation.golden import load_golden_questions, score_answers
+from litbot.evaluation.retrieval import load_retrieval_cases, result_to_dict, score_retrieval
 from litbot.generation.service import GenerationService
 from litbot.ingestion.store import IngestionService
 from litbot.observability.logging import configure_logging
@@ -76,6 +79,19 @@ def reindex(
     typer.echo(f"Reindexed {ingested} chunks from {corpus_dir}")
 
 
+@app.command("fetch-corpus")
+def fetch_corpus(
+    target: Annotated[
+        Path,
+        typer.Option(help="Directory where downloaded corpus files and sidecars are written."),
+    ] = Path(".litbot_corpus/public_domain"),
+) -> None:
+    """Download the default public-domain corpus and metadata sidecars."""
+
+    paths = fetch_public_domain_corpus(target)
+    typer.echo(f"Wrote {len(paths)} files to {target}")
+
+
 @app.command()
 def ask(
     question: Annotated[str, typer.Argument(help="Question to answer from the corpus.")],
@@ -109,3 +125,23 @@ def evaluate(
             "citation_rate": result.citation_rate,
         }
     )
+
+
+@app.command("eval-retrieval")
+def evaluate_retrieval(
+    cases_jsonl: Annotated[Path, typer.Argument(help="JSONL file of retrieval golden cases.")],
+) -> None:
+    """Score retrieval against golden expected chunks without running generation."""
+
+    cases = load_retrieval_cases(cases_jsonl)
+    settings = get_settings()
+    try:
+        with get_connection(settings) as conn:
+            service = RetrievalService(conn, settings)
+            result = score_retrieval(
+                cases,
+                lambda question, filters, k: service.retrieve(question, filters=filters, top_k=k),
+            )
+    finally:
+        close_pool()
+    typer.echo(json.dumps(result_to_dict(result), indent=2))

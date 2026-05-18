@@ -67,8 +67,8 @@ class IngestionService:
             INSERT INTO documents
                 (source_id, title, author, translator, editor,
                  publication_year, edition, genre, language,
-                 license, uri, version, metadata)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 license, uri, version, metadata, content_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (source_id) DO UPDATE SET
                 title            = EXCLUDED.title,
                 author           = EXCLUDED.author,
@@ -99,6 +99,7 @@ class IngestionService:
                 metadata.uri,
                 metadata.version,
                 Jsonb(metadata.metadata),
+                "",
             ),
         ).fetchone()
         return int(row["id"])
@@ -133,16 +134,17 @@ class IngestionService:
             )
             for chunk, vector in zip(chunks, vectors, strict=True)
         ]
-        self.conn.executemany(
-            """
-            INSERT INTO chunks
-                (chunk_id, document_id, source_id, chunk_index,
-                 text, token_count, chunk_hash, embedding, metadata)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector, %s)
-            ON CONFLICT (chunk_id) DO NOTHING
-            """,
-            rows,
-        )
+        with self.conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO chunks
+                    (chunk_id, document_id, source_id, chunk_index,
+                     text, token_count, chunk_hash, embedding, metadata)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector, %s)
+                ON CONFLICT (chunk_id) DO NOTHING
+                """,
+                rows,
+            )
 
 
 def _vector_literal(vector: list[float]) -> str:

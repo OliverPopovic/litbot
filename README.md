@@ -18,6 +18,7 @@ monitoring.
 - Retrieves with hybrid search over LitBot-owned tables:
   - pgvector cosine search over `chunks.embedding` for semantic matching.
   - PostgreSQL full-text search over `chunks.text` for names, quotes, and exact phrasing.
+  - Reciprocal Rank Fusion over semantic and lexical candidate ranks.
 - Sends retrieved chunks to an OpenAI chat model through LangChain.
 - Requires structured model output containing `answer`, `citation_map`, and `unsupported`.
 - Validates citation labels against the retrieved chunks before returning the response.
@@ -98,10 +99,22 @@ Ingest one document:
 uv run litbot ingest examples/frankenstein_excerpt.txt
 ```
 
+Download the larger public-domain evaluation corpus:
+
+```bash
+uv run litbot fetch-corpus
+```
+
 Clear first-party document/chunk rows and ingest the local corpus:
 
 ```bash
 uv run litbot reindex corpus
+```
+
+Reindex the downloaded public-domain corpus:
+
+```bash
+uv run litbot reindex .litbot_corpus/public_domain
 ```
 
 Ingestion expects a metadata sidecar next to the source file:
@@ -159,6 +172,12 @@ Score a JSONL answer export with the lightweight evaluator:
 uv run litbot eval path/to/answers.jsonl
 ```
 
+Score retrieval directly against the golden retrieval fixture after reindexing the larger corpus:
+
+```bash
+uv run litbot eval-retrieval tests/fixtures/retrieval_golden.jsonl
+```
+
 ## Configuration
 
 Configuration is loaded from environment variables, with `LITBOT_` prefixes where applicable.
@@ -170,6 +189,11 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 - `LITBOT_EMBEDDING_DIMENSIONS`: embedding dimension. Default: `1536`; must match the migration's
   `chunks.embedding vector(1536)` column unless the schema is changed too.
 - `LITBOT_TOP_K`: default number of retrieved chunks. Default: `8`.
+- `LITBOT_RETRIEVAL_CANDIDATE_MULTIPLIER`: candidate expansion multiplier for each retrieval
+  lane. Default: `8`.
+- `LITBOT_RETRIEVAL_MIN_CANDIDATES`: minimum candidates per retrieval lane. Default: `50`.
+- `LITBOT_RETRIEVAL_MAX_CANDIDATES`: maximum candidates per retrieval lane. Default: `200`.
+- `LITBOT_RETRIEVAL_RRF_K`: Reciprocal Rank Fusion constant. Default: `60`.
 - `LITBOT_PROMPT_VERSION`: prompt version label returned in responses.
 
 ## Current Retrieval And Generation Flow
@@ -179,7 +203,7 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 3. Semantic search runs a pgvector cosine-distance query against `chunks.embedding`.
 4. Lexical search runs PostgreSQL full-text search against `chunks.text`.
 5. Vector and lexical result sets are merged by `chunk_id`.
-6. Each score set is normalized before applying the current `0.75` vector / `0.25` lexical weight.
+6. Chunks are ranked with Reciprocal Rank Fusion over vector and lexical ranks.
 7. Final chunks are labeled `S1`, `S2`, etc., and each chunk records whether it came from vector,
    lexical, or hybrid matching.
 8. LangChain builds a chat prompt containing the question and retrieved source payload.

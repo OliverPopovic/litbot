@@ -1,0 +1,40 @@
+{"question":"In Pride and Prejudice, who says it is a truth universally acknowledged?","filters":{"work":"Pride and Prejudice"},"expected_work":"Pride and Prejudice","expected_chunk_text_contains":"It is a truth universally acknowledged","k":8}
+{"question":"Which Pride and Prejudice character owns Netherfield Park?","filters":{"work":"Pride and Prejudice"},"expected_work":"Pride and Prejudice","expected_chunk_text_contains":"Netherfield Park is let at last","k":8}
+{"question":"What does Mrs. Bennet want Mr. Bennet to do about Bingley?","filters":{"work":"Pride and Prejudice"},"expected_work":"Pride and Prejudice","expected_chunk_text_contains":"you must visit him as soon as he comes","k":8}
+{"question":"Find the passage in Pride and Prejudice about single men in possession of a good fortune.","filters":{"work":"Pride and Prejudice"},"expected_work":"Pride and Prejudice","expected_chunk_text_contains":"single man in possession of a good fortune","k":8}
+{"question":"Retrieve any Pride and Prejudice evidence when the query asks about first impressions and courtship.","filters":{"work":"Pride and Prejudice"},"expected_work":"Pride and Prejudice","expected_source_id":"pride-prejudice-1813","k":8}
+{"question":"Who says Call me Ishmael in Moby-Dick?","filters":{"work":"Moby-Dick"},"expected_work":"Moby-Dick","expected_chunk_text_contains":"Call me Ishmael","k":8}
+{"question":"In Moby-Dick, what does Ishmael do when it is a damp drizzly November in his soul?","filters":{"work":"Moby-Dick"},"expected_work":"Moby-Dick","expected_chunk_text_contains":"damp, drizzly November in my soul","k":8}
+{"question":"Where does Ishmael go to sea in Moby-Dick?","filters":{"work":"Moby-Dick"},"expected_work":"Moby-Dick","expected_chunk_text_contains":"I thought I would sail about a little","k":8}
+{"question":"Find Moby-Dick evidence about water-gazers in Manhattan.","filters":{"work":"Moby-Dick"},"expected_work":"Moby-Dick","expected_chunk_text_contains":"Circumambulate the city of a dreamy Sabbath afternoon","k":8}
+{"question":"Retrieve any Moby-Dick evidence about Ahab and the whale.","filters":{"work":"Moby-Dick"},"expected_work":"Moby-Dick","expected_source_id":"moby-dick-1851","k":8}
+{"question":"Who asks Who's there at the beginning of Hamlet?","filters":{"work":"Hamlet"},"expected_work":"Hamlet","expected_chunk_text_contains":"Who's there","k":8}
+{"question":"Find Hamlet's to be or not to be soliloquy.","filters":{"work":"Hamlet"},"expected_work":"Hamlet","expected_chunk_text_contains":"To be, or not to be","k":8}
+{"question":"In Hamlet, what is rotten in the state of Denmark?","filters":{"work":"Hamlet"},"expected_work":"Hamlet","expected_chunk_text_contains":"Something is rotten in the state of Denmark","k":8}
+{"question":"Find evidence in Hamlet about the ghost of Hamlet's father.","filters":{"work":"Hamlet"},"expected_work":"Hamlet","expected_chunk_text_contains":"I am thy father's spirit","k":8}
+{"question":"Retrieve any Hamlet evidence for revenge and uncertainty.","filters":{"work":"Hamlet"},"expected_work":"Hamlet","expected_source_id":"hamlet","k":8}
+{"question":"Where is the Maison Vauquer described in Father Goriot?","filters":{"work":"Father Goriot"},"expected_work":"Father Goriot","expected_chunk_text_contains":"Maison Vauquer","k":8}
+{"question":"Who is Rastignac in Father Goriot?","filters":{"work":"Father Goriot"},"expected_work":"Father Goriot","expected_chunk_text_contains":"Eugene de Rastignac","k":8}
+{"question":"Find Father Goriot evidence about Madame Vauquer's boarding house.","filters":{"work":"Father Goriot"},"expected_work":"Father Goriot","expected_chunk_text_contains":"Mme. Vauquer","k":8}
+{"question":"What Paris neighborhood appears near the start of Father Goriot?","filters":{"work":"Father Goriot"},"expected_work":"Father Goriot","expected_chunk_text_contains":"Rue Neuve-Sainte-Genevieve","k":8}
+{"question":"Retrieve any Father Goriot evidence about family and ambition.","filters":{"work":"Father Goriot"},"expected_work":"Father Goriot","expected_source_id":"father-goriot-1835","k":8}
+{"question":"Who is Raskolnikov in Crime and Punishment?","filters":{"work":"Crime and Punishment"},"expected_work":"Crime and Punishment","expected_chunk_text_contains":"Raskolnikov","k":8}
+{"question":"Find Crime and Punishment evidence about the pawnbroker Alyona Ivanovna.","filters":{"work":"Crime and Punishment"},"expected_work":"Crime and Punishment","expected_chunk_text_contains":"Alyona Ivanovna","k":8}
+{"question":"Where does Raskolnikov live at the start of Crime and Punishment?","filters":{"work":"Crime and Punishment"},"expected_work":"Crime and Punishment","expected_chunk_text_contains":"tiny room","k":8}
+{"question":"Find evidence about Sonia in Crime and Punishment.","filters":{"work":"Crime and Punishment"},"expected_work":"Crime and Punishment","expected_chunk_text_contains":"Sonia","k":8}
+{"question":"Retrieve any Crime and Punishment evidence about guilt and murder.","filters":{"work":"Crime and Punishment"},"expected_work":"Crime and Punishment","expected_source_id":"crime-punishment-1866","k":8}
+{"question":"Who is Don Quixote's squire?","filters":{"work":"Don Quixote"},"expected_work":"Don Quixote","expected_chunk_text_contains":"Sancho Panza","k":8}
+{"question":"Find Don Quixote evidence about windmills.","filters":{"work":"Don Quixote"},"expected_work":"Don Quixote","expected_chunk_text_contains":"thirty or forty windmills","k":8}
+{"question":"What books shape Don Quixote's imagination?","filters":{"work":"Don Quixote"},"expected_work":"Don Quixote","expected_chunk_text_contains":"books of chivalry","k":8}
+{"question":"Find evidence about Rocinante in Don Quixote.","filters":{"work":"Don Quixote"},"expected_work":"Don Quixote","expected_chunk_text_contains":"Rocinante","k":8}
+{"question":"Retrieve any Don Quixote evidence about mistaken adventure.","filters":{"work":"Don Quixote"},"expected_work":"Don Quixote","expected_source_id":"don-quixote-1605","k":8}
+{"question":"Who is Odysseus in The Odyssey?","filters":{"work":"The Odyssey"},"expected_work":"The Odyssey","expected_chunk_text_contains":"Ulysses","k":8}
+{"question":"Find Odyssey evidence about the Muse.","filters":{"work":"The Odyssey"},"expected_work":"The Odyssey","expected_chunk_text_contains":"The man for wisdom's various arts renown'd","k":8}
+{"question":"What happens with the Cyclops in The Odyssey?","filters":{"work":"The Odyssey"},"expected_work":"The Odyssey","expected_chunk_text_contains":"Cyclop","k":8}
+{"question":"Find evidence about Penelope in The Odyssey.","filters":{"work":"The Odyssey"},"expected_work":"The Odyssey","expected_chunk_text_contains":"Penelope","k":8}
+{"question":"Retrieve any Odyssey evidence about homecoming.","filters":{"work":"The Odyssey"},"expected_work":"The Odyssey","expected_source_id":"odyssey","k":8}
+{"question":"Who is Emma Bovary?","filters":{"work":"Madame Bovary"},"expected_work":"Madame Bovary","expected_chunk_text_contains":"Emma Bovary","k":8}
+{"question":"Who is Charles Bovary in Madame Bovary?","filters":{"work":"Madame Bovary"},"expected_work":"Madame Bovary","expected_chunk_text_contains":"Charles Bovary","k":8}
+{"question":"Find Madame Bovary evidence about Yonville.","filters":{"work":"Madame Bovary"},"expected_work":"Madame Bovary","expected_chunk_text_contains":"Yonville","k":8}
+{"question":"Find evidence about Rodolphe in Madame Bovary.","filters":{"work":"Madame Bovary"},"expected_work":"Madame Bovary","expected_chunk_text_contains":"Rodolphe","k":8}
+{"question":"Retrieve any Madame Bovary evidence about romantic dissatisfaction.","filters":{"work":"Madame Bovary"},"expected_work":"Madame Bovary","expected_source_id":"madame-bovary-1857","k":8}
