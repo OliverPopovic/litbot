@@ -5,7 +5,7 @@ import structlog
 from psycopg import Connection
 
 from litbot.config import Settings, get_settings
-from litbot.langchain import document_to_retrieved_chunk, embed_query
+from litbot.langchain import embed_query
 from litbot.models import RetrievedChunk
 
 logger = structlog.get_logger(__name__)
@@ -162,6 +162,29 @@ def _metadata_where_clause(filters: dict[str, Any]) -> tuple[str, list[Any]]:
             clauses.append("metadata->>%s = %s")
             params.extend([key, str(value)])
     return (" AND ".join(clauses), params)
+
+
+def document_to_retrieved_chunk(
+    row: dict,
+    *,
+    label: str = "",
+    vector_score: float | None = None,
+    lexical_score: float | None = None,
+    combined_score: float = 0.0,
+    reason: str = "",
+) -> RetrievedChunk:
+    metadata = dict(row.get("metadata") or {})
+    return RetrievedChunk(
+        label=label,
+        chunk_id=str(row["chunk_id"]),
+        source_id=str(row["source_id"]),
+        text=str(row["text"]),
+        metadata=metadata,
+        vector_score=vector_score,
+        lexical_score=lexical_score,
+        combined_score=combined_score,
+        reason=reason,
+    )
 
 
 def _vector_literal(vector: list[float]) -> str:

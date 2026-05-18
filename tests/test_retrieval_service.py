@@ -5,6 +5,7 @@ from litbot.retrieval.service import (
     _metadata_where_clause,
     _normalize_filters,
     _normalize_top_k,
+    document_to_retrieved_chunk,
 )
 
 
@@ -39,6 +40,31 @@ def test_metadata_where_clause_handles_jsonb_and_scalar_filters() -> None:
         '{"tags": ["gothic"]}',
         '{"edition": {"volume": 1}}',
     ]
+
+
+def test_document_to_retrieved_chunk_round_trips_scores_and_text() -> None:
+    row = {
+        "chunk_id": "chunk-1",
+        "source_id": "source-1",
+        "text": "Evidence text.",
+        "metadata": {"title": "Work"},
+    }
+
+    chunk = document_to_retrieved_chunk(
+        row,
+        label="S1",
+        vector_score=0.9,
+        lexical_score=0.2,
+        combined_score=0.725,
+        reason="hybrid vector + lexical match",
+    )
+
+    assert chunk.label == "S1"
+    assert chunk.chunk_id == "chunk-1"
+    assert chunk.source_id == "source-1"
+    assert chunk.text == "Evidence text."
+    assert chunk.combined_score == 0.725
+    assert chunk.reason == "hybrid vector + lexical match"
 
 
 def test_merge_assigns_labels_after_hybrid_ranking() -> None:

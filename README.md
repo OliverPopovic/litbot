@@ -194,7 +194,7 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
   - ~~Use LangChain prompt templates and structured output for generation.~~
   - ~~Use LangChain text splitters for chunking.~~
   - ~~Move vector storage and retrieval onto LitBot-owned PostgreSQL tables.~~
-  - Keep storage-specific SQL in ingestion/retrieval modules instead of `litbot/langchain.py`.
+  - ~~Keep storage-specific SQL in ingestion/retrieval modules instead of `litbot/langchain.py`.~~
 - ~~Optimize project structure and simplify framework boundaries.~~
   - ~~Move schema validation into Pydantic models.~~
   - ~~Keep LangChain helpers isolated in `litbot/langchain.py`.~~
