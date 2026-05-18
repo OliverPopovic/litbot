@@ -1,13 +1,14 @@
 import logging
 import sys
+from typing import TextIO
 
 import structlog
 
 
-def configure_logging() -> None:
+def configure_logging(stream: TextIO = sys.stdout) -> None:
     """Configure JSON-friendly structured logs for API, ingestion, and retrieval events."""
 
-    logging.basicConfig(format="%(message)s", stream=sys.stdout, level=logging.INFO)
+    logging.basicConfig(format="%(message)s", stream=stream, level=logging.INFO, force=True)
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -19,6 +20,6 @@ def configure_logging() -> None:
         ],
         wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.PrintLoggerFactory(file=stream),
         cache_logger_on_first_use=True,
     )

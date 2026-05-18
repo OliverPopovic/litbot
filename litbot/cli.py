@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -133,6 +134,7 @@ def evaluate_retrieval(
 ) -> None:
     """Score retrieval against golden expected chunks without running generation."""
 
+    configure_logging(stream=sys.stderr)
     cases = load_retrieval_cases(cases_jsonl)
     settings = get_settings()
     try:

@@ -4,6 +4,15 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from litbot.models import RetrievedChunk
 
+PROMPT_METADATA_KEYS = (
+    "work",
+    "title",
+    "author",
+    "translator",
+    "publication_year",
+    "source_id",
+)
+
 SYSTEM_PROMPT = """
 You are a literary research assistant. Answer using only the provided sources. If the sources do
 not contain enough evidence, say what is missing. Do not invent quotes, page numbers,
@@ -32,7 +41,7 @@ PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
 def build_user_payload(question: str, chunks: list[RetrievedChunk]) -> str:
     sources = []
     for chunk in chunks:
-        metadata = dict(chunk.metadata)
+        metadata = _prompt_metadata(chunk)
         sources.append(
             {
                 "label": chunk.label,
@@ -44,6 +53,12 @@ def build_user_payload(question: str, chunks: list[RetrievedChunk]) -> str:
         )
     user_payload = {"question": question, "retrieved_sources": sources}
     return json.dumps(user_payload, ensure_ascii=False)
+
+
+def _prompt_metadata(chunk: RetrievedChunk) -> dict[str, object]:
+    metadata = {key: chunk.metadata[key] for key in PROMPT_METADATA_KEYS if key in chunk.metadata}
+    metadata.setdefault("source_id", chunk.source_id)
+    return metadata
 
 
 def build_messages(question: str, chunks: list[RetrievedChunk]) -> list[dict[str, str]]:

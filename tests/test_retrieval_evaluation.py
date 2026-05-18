@@ -67,6 +67,31 @@ def test_score_retrieval_reports_hit_rates_mrr_and_misses() -> None:
     assert result_to_dict(result)["misses"][0]["retrieved"][0]["work"] == "Hamlet"
 
 
+def test_score_retrieval_normalizes_whitespace_for_text_matches() -> None:
+    case = RetrievalCase(
+        question="What should Mr. Bennet do?",
+        expected_work="Pride and Prejudice",
+        filters={},
+        k=1,
+        expected_chunk_text_contains="you must visit him as soon as he comes",
+    )
+
+    result = score_retrieval(
+        [case],
+        lambda question, filters, k: [
+            _chunk(
+                "S1",
+                "pride-prejudice-1813",
+                "Pride and Prejudice",
+                "you must visit him as\nsoon as he comes",
+            )
+        ],
+    )
+
+    assert result.hit_at_1 == 1
+    assert result.misses == []
+
+
 def _chunk(label: str, source_id: str, work: str, text: str) -> RetrievedChunk:
     return RetrievedChunk(
         label=label,

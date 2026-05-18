@@ -10,7 +10,13 @@ def test_build_messages_includes_structured_sources() -> None:
         chunk_id="chunk-1",
         source_id="source-1",
         text="A passage.",
-        metadata={"title": "Work"},
+        metadata={
+            "work": "Work",
+            "title": "Work",
+            "author": "Author",
+            "uri": "https://example.test/work",
+            "license": "Public domain",
+        },
         combined_score=0.8,
         reason="test",
     )
@@ -22,6 +28,12 @@ def test_build_messages_includes_structured_sources() -> None:
     assert payload["question"] == "What happens?"
     assert payload["retrieved_sources"][0]["label"] == "S1"
     assert payload["retrieved_sources"][0]["chunk_text"] == "A passage."
+    assert payload["retrieved_sources"][0]["metadata"] == {
+        "work": "Work",
+        "title": "Work",
+        "author": "Author",
+        "source_id": "source-1",
+    }
 
 
 def test_build_prompt_value_uses_langchain_template() -> None:

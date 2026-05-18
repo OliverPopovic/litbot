@@ -1,3 +1,4 @@
+import sys
 from contextlib import contextmanager
 
 from typer.testing import CliRunner
@@ -22,10 +23,17 @@ def test_eval_retrieval_cli_scores_with_mocked_retriever(monkeypatch) -> None:
     monkeypatch.setattr(cli, "get_connection", lambda settings: _fake_connection())
     monkeypatch.setattr(cli, "close_pool", lambda: None)
     monkeypatch.setattr(cli, "RetrievalService", FakeRetrievalService)
+    log_streams = []
+    monkeypatch.setattr(
+        cli,
+        "configure_logging",
+        lambda stream=sys.stdout: log_streams.append(stream),
+    )
 
     result = runner.invoke(cli.app, ["eval-retrieval", "cases.jsonl"])
 
     assert result.exit_code == 0
+    assert getattr(log_streams[-1], "name", None) == "<stderr>"
     assert '"total": 1' in result.output
     assert '"hit_at_1": 1' in result.output
 

@@ -1,4 +1,5 @@
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -159,13 +160,19 @@ def _matches_case(case: RetrievalCase, chunk: RetrievedChunk) -> bool:
     if case.expected_source_id is not None:
         return chunk.source_id == case.expected_source_id
     if case.expected_chunk_text_contains is not None:
-        return case.expected_chunk_text_contains.lower() in chunk.text.lower()
+        expected = _normalize_match_text(case.expected_chunk_text_contains)
+        actual = _normalize_match_text(chunk.text)
+        return expected in actual
     if case.expected_metadata_contains is not None:
         return all(
             chunk.metadata.get(key) == value
             for key, value in case.expected_metadata_contains.items()
         )
     return False
+
+
+def _normalize_match_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip().lower()
 
 
 def _retrieved_summary(chunk: RetrievedChunk) -> dict[str, str]:

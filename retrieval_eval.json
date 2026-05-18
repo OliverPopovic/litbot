@@ -1,0 +1,657 @@
+{
+  "total": 40,
+  "hit_at_1": 20,
+  "hit_at_3": 25,
+  "hit_at_k": 28,
+  "mean_reciprocal_rank": 0.565625,
+  "misses": [
+    {
+      "question": "Who says Call me Ishmael in Moby-Dick?",
+      "expected_work": "Moby-Dick",
+      "retrieved": [
+        {
+          "label": "S1",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00197:bea278d80a"
+        },
+        {
+          "label": "S2",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00588:b624e331dc"
+        },
+        {
+          "label": "S3",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00345:89e5e3243e"
+        },
+        {
+          "label": "S4",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00135:402a130ab3"
+        },
+        {
+          "label": "S5",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00221:cb5bcae1f5"
+        },
+        {
+          "label": "S6",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00000:246187e26d"
+        },
+        {
+          "label": "S7",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00207:b20cc93fff"
+        },
+        {
+          "label": "S8",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00600:278c7e6039"
+        }
+      ]
+    },
+    {
+      "question": "In Moby-Dick, what does Ishmael do when it is a damp drizzly November in his soul?",
+      "expected_work": "Moby-Dick",
+      "retrieved": [
+        {
+          "label": "S1",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00197:bea278d80a"
+        },
+        {
+          "label": "S2",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00221:cb5bcae1f5"
+        },
+        {
+          "label": "S3",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00220:9a31d6f134"
+        },
+        {
+          "label": "S4",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00571:ca58a0e3c9"
+        },
+        {
+          "label": "S5",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00141:4ed2e7b4c7"
+        },
+        {
+          "label": "S6",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00608:3b58588b96"
+        },
+        {
+          "label": "S7",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00207:b20cc93fff"
+        },
+        {
+          "label": "S8",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00140:968b1b17da"
+        }
+      ]
+    },
+    {
+      "question": "Where does Ishmael go to sea in Moby-Dick?",
+      "expected_work": "Moby-Dick",
+      "retrieved": [
+        {
+          "label": "S1",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00197:bea278d80a"
+        },
+        {
+          "label": "S2",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00411:a7f5ea7c4a"
+        },
+        {
+          "label": "S3",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00588:b624e331dc"
+        },
+        {
+          "label": "S4",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00221:cb5bcae1f5"
+        },
+        {
+          "label": "S5",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00609:019c0c27dc"
+        },
+        {
+          "label": "S6",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00565:61fd446690"
+        },
+        {
+          "label": "S7",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00345:89e5e3243e"
+        },
+        {
+          "label": "S8",
+          "work": "Moby-Dick",
+          "source_id": "moby-dick-1851",
+          "chunk_id": "moby-dick-1851:00585:67b542751d"
+        }
+      ]
+    },
+    {
+      "question": "Who asks Who's there at the beginning of Hamlet?",
+      "expected_work": "Hamlet",
+      "retrieved": [
+        {
+          "label": "S1",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00046:61c3b53972"
+        },
+        {
+          "label": "S2",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00033:11ab8fe377"
+        },
+        {
+          "label": "S3",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00000:318fe15999"
+        },
+        {
+          "label": "S4",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00014:9e562649b2"
+        },
+        {
+          "label": "S5",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00059:2379807112"
+        },
+        {
+          "label": "S6",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00009:7bc9fc0c25"
+        },
+        {
+          "label": "S7",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00034:1a6f4374f0"
+        },
+        {
+          "label": "S8",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00035:5491d4b253"
+        }
+      ]
+    },
+    {
+      "question": "Find evidence in Hamlet about the ghost of Hamlet's father.",
+      "expected_work": "Hamlet",
+      "retrieved": [
+        {
+          "label": "S1",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00009:7bc9fc0c25"
+        },
+        {
+          "label": "S2",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00016:86f3a2b5c4"
+        },
+        {
+          "label": "S3",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00075:5765ae5e69"
+        },
+        {
+          "label": "S4",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00059:2379807112"
+        },
+        {
+          "label": "S5",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00017:f6db8307fb"
+        },
+        {
+          "label": "S6",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00021:7fc5c4cb46"
+        },
+        {
+          "label": "S7",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00003:109d980515"
+        },
+        {
+          "label": "S8",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00010:b9601973e9"
+        }
+      ]
+    },
+    {
+      "question": "Retrieve Hamlet evidence for revenge and uncertainty.",
+      "expected_work": "Hamlet",
+      "retrieved": [
+        {
+          "label": "S1",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00017:f6db8307fb"
+        },
+        {
+          "label": "S2",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00039:2eb3f4e19e"
+        },
+        {
+          "label": "S3",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00016:86f3a2b5c4"
+        },
+        {
+          "label": "S4",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00085:6caf3f7ca6"
+        },
+        {
+          "label": "S5",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00059:2379807112"
+        },
+        {
+          "label": "S6",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00084:68ce96ab03"
+        },
+        {
+          "label": "S7",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00055:ab9c4bc951"
+        },
+        {
+          "label": "S8",
+          "work": "Hamlet",
+          "source_id": "hamlet",
+          "chunk_id": "hamlet:00075:5765ae5e69"
+        }
+      ]
+    },
+    {
+      "question": "Where does Raskolnikov live at the start of Crime and Punishment?",
+      "expected_work": "Crime and Punishment",
+      "retrieved": [
+        {
+          "label": "S1",
+          "work": "Crime and Punishment",
+          "source_id": "crime-punishment-1866",
+          "chunk_id": "crime-punishment-1866:00352:a5f89b659b"
+        },
+        {
+          "label": "S2",
+          "work": "Crime and Punishment",
+          "source_id": "crime-punishment-1866",
+          "chunk_id": "crime-punishment-1866:00132:bb2aaef8a0"
+        },
+        {
+          "label": "S3",
+          "work": "Crime and Punishment",
+          "source_id": "crime-punishment-1866",
+          "chunk_id": "crime-punishment-1866:00113:f41dfbe5fe"
+        },
+        {
+          "label": "S4",
+          "work": "Crime and Punishment",
+          "source_id": "crime-punishment-1866",
+          "chunk_id": "crime-punishment-1866:00125:a8a255188b"
+        },
+        {
+          "label": "S5",
+          "work": "Crime and Punishment",
+          "source_id": "crime-punishment-1866",
+          "chunk_id": "crime-punishment-1866:00172:52616a1cd6"
+        },
+        {
+          "label": "S6",
+          "work": "Crime and Punishment",
+          "source_id": "crime-punishment-1866",
+          "chunk_id": "crime-punishment-1866:00201:e367d033d1"
+        },
+        {
+          "label": "S7",
+          "work": "Crime and Punishment",
+          "source_id": "crime-punishment-1866",
+          "chunk_id": "crime-punishment-1866:00049:ca53e67e1b"
+        },
+        {
+          "label": "S8",
+          "work": "Crime and Punishment",
+          "source_id": "crime-punishment-1866",
+          "chunk_id": "crime-punishment-1866:00487:4b1b78a774"
+        }
+      ]
+    },
+    {
+      "question": "Retrieve Don Quixote evidence about mistaken adventure.",
+      "expected_work": "Don Quixote",
+      "retrieved": [
+        {
+          "label": "S1",
+          "work": "Don Quixote",
+          "source_id": "don-quixote-1605",
+          "chunk_id": "don-quixote-1605:00773:5c49226d87"
+        },
+        {
+          "label": "S2",
+          "work": "Don Quixote",
+          "source_id": "don-quixote-1605",
+          "chunk_id": "don-quixote-1605:00108:5071ebea14"
+        },
+        {
+          "label": "S3",
+          "work": "Don Quixote",
+          "source_id": "don-quixote-1605",
+          "chunk_id": "don-quixote-1605:00739:efc9af6073"
+        },
+        {
+          "label": "S4",
+          "work": "Don Quixote",
+          "source_id": "don-quixote-1605",
+          "chunk_id": "don-quixote-1605:00568:a764467b31"
+        },
+        {
+          "label": "S5",
+          "work": "Don Quixote",
+          "source_id": "don-quixote-1605",
+          "chunk_id": "don-quixote-1605:00714:59ee9185c4"
+        },
+        {
+          "label": "S6",
+          "work": "Don Quixote",
+          "source_id": "don-quixote-1605",
+          "chunk_id": "don-quixote-1605:01107:19d3998452"
+        },
+        {
+          "label": "S7",
+          "work": "Don Quixote",
+          "source_id": "don-quixote-1605",
+          "chunk_id": "don-quixote-1605:00703:0fb38ec005"
+        },
+        {
+          "label": "S8",
+          "work": "Don Quixote",
+          "source_id": "don-quixote-1605",
+          "chunk_id": "don-quixote-1605:00872:4534366f2c"
+        }
+      ]
+    },
+    {
+      "question": "Find Odyssey evidence about the Muse.",
+      "expected_work": "The Odyssey",
+      "retrieved": [
+        {
+          "label": "S1",
+          "work": "The Odyssey",
+          "source_id": "odyssey",
+          "chunk_id": "odyssey:00007:7287dced54"
+        },
+        {
+          "label": "S2",
+          "work": "The Odyssey",
+          "source_id": "odyssey",
+          "chunk_id": "odyssey:00017:3cc8f801f7"
+        },
+        {
+          "label": "S3",
+          "work": "The Odyssey",
+          "source_id": "odyssey",
+          "chunk_id": "odyssey:00016:1e25725b21"
+        },
+        {
+          "label": "S4",
+          "work": "The Odyssey",
+          "source_id": "odyssey",
+          "chunk_id": "odyssey:00002:2c300e3c54"
+        },
+        {
+          "label": "S5",
+          "work": "The Odyssey",
+          "source_id": "odyssey",
+          "chunk_id": "odyssey:00126:cbc59604c1"
+        },
+        {
+          "label": "S6",
+          "work": "The Odyssey",
+          "source_id": "odyssey",
+          "chunk_id": "odyssey:00000:aad0cb85be"
+        },
+        {
+          "label": "S7",
+          "work": "The Odyssey",
+          "source_id": "odyssey",
+          "chunk_id": "odyssey:00260:6c6d31275d"
+        },
+        {
+          "label": "S8",
+          "work": "The Odyssey",
+          "source_id": "odyssey",
+          "chunk_id": "odyssey:00116:05a634ea2a"
+        }
+      ]
+    },
+    {
+      "question": "Who is Emma Bovary?",
+      "expected_work": "Madame Bovary",
+      "retrieved": [
+        {
+          "label": "S1",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00225:60c5d60c43"
+        },
+        {
+          "label": "S2",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00038:0746334c42"
+        },
+        {
+          "label": "S3",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00173:927249de72"
+        },
+        {
+          "label": "S4",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00061:75e82b559f"
+        },
+        {
+          "label": "S5",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00083:bbdc423fca"
+        },
+        {
+          "label": "S6",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00194:67cf0fd4a8"
+        },
+        {
+          "label": "S7",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00175:4892c17e87"
+        },
+        {
+          "label": "S8",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00226:921661b3bc"
+        }
+      ]
+    },
+    {
+      "question": "Who is Charles Bovary in Madame Bovary?",
+      "expected_work": "Madame Bovary",
+      "retrieved": [
+        {
+          "label": "S1",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00082:5db862ff01"
+        },
+        {
+          "label": "S2",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00226:921661b3bc"
+        },
+        {
+          "label": "S3",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00009:d08a3469e2"
+        },
+        {
+          "label": "S4",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00302:d5318b88bb"
+        },
+        {
+          "label": "S5",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00225:60c5d60c43"
+        },
+        {
+          "label": "S6",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00173:927249de72"
+        },
+        {
+          "label": "S7",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00292:462784bed9"
+        },
+        {
+          "label": "S8",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00113:18354a8627"
+        }
+      ]
+    },
+    {
+      "question": "Retrieve Madame Bovary evidence about romantic dissatisfaction.",
+      "expected_work": "Madame Bovary",
+      "retrieved": [
+        {
+          "label": "S1",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00175:4892c17e87"
+        },
+        {
+          "label": "S2",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00225:60c5d60c43"
+        },
+        {
+          "label": "S3",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00194:67cf0fd4a8"
+        },
+        {
+          "label": "S4",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00263:45ff1252f6"
+        },
+        {
+          "label": "S5",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00209:686899d0c0"
+        },
+        {
+          "label": "S6",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00087:3af4290b1e"
+        },
+        {
+          "label": "S7",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00117:62a85cad22"
+        },
+        {
+          "label": "S8",
+          "work": "Madame Bovary",
+          "source_id": "madame-bovary-1857",
+          "chunk_id": "madame-bovary-1857:00241:31a6e4ddd9"
+        }
+      ]
+    }
+  ]
+}
