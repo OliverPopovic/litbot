@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -92,6 +92,28 @@ class ChatRequest(LitBotModel):
         return value
 
 
+class IntentClassification(LitBotModel):
+    intent: Literal["question", "note"] = "question"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    extracted_note_text: str | None = None
+    extracted_work: str | None = None
+    reason: str | None = None
+
+
+class NoteProcessingPayload(LitBotModel):
+    should_save: bool = False
+    rewritten_note: str = ""
+    inferred_work: str | None = None
+    selected_chunk_ids: list[str] = Field(default_factory=list)
+    citation_map: list["CitationMapItem"] = Field(default_factory=list)
+    rejection_reason: str | None = None
+
+
+class CitationMapItem(LitBotModel):
+    claim: str = ""
+    sources: list[str] = Field(default_factory=list)
+
+
 class Citation(LitBotModel):
     label: str
     source_id: str
@@ -107,4 +129,13 @@ class ChatResponse(LitBotModel):
     trace_id: str
     citation_map: list[dict[str, Any]] = Field(default_factory=list)
     unsupported: list[str] = Field(default_factory=list)
+    intent: Literal["question", "note"] | None = None
+    intent_confidence: float | None = None
+    note_status: Literal["saved", "not_saved"] | None = None
+    note_id: str | None = None
+    note: str | None = None
+    original_note: str | None = None
+    note_work: str | None = None
+    note_chunk_ids: list[str] | None = None
+    note_rejection_reason: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

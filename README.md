@@ -23,6 +23,9 @@ monitoring.
 - Sends retrieved chunks to an OpenAI chat model through LangChain.
 - Requires structured model output containing `answer`, `citation_map`, and `unsupported`.
 - Validates citation labels against the retrieved chunks before returning the response.
+- Classifies `/chat` and `litbot ask` inputs as questions or reading notes. High-confidence notes
+  are grounded in retrieved corpus chunks, rewritten for concise factuality, embedded, and stored
+  globally with supporting chunk links.
 
 ## Tools
 
@@ -48,10 +51,13 @@ monitoring.
 ## Project Layout
 
 - `litbot/api/`: FastAPI app with `/health` and `/chat`.
+- `litbot/chat.py`: Shared question/note orchestration for API and CLI surfaces.
 - `litbot/cli.py`: `serve`, `ingest`, `reindex`, `ask`, and `eval` commands.
 - `litbot/ingestion/`: parsing, normalization, chunking, embedding, and first-party table storage.
 - `litbot/retrieval/`: hybrid pgvector plus PostgreSQL full-text retrieval over `chunks`.
 - `litbot/generation/`: LangChain prompt construction, structured generation, and citation validation.
+- `litbot/intent.py` and `litbot/notes/`: intent classification plus grounded note rewriting and
+  storage.
 - `litbot/langchain.py`: LangChain OpenAI factories and retrieval-row conversion helpers.
 - `litbot/models.py`: Pydantic request, response, metadata, chunk, and citation models.
 - `corpus/`: small public-domain sample corpus.
@@ -91,6 +97,7 @@ Apply the database schema:
 ```bash
 psql $LITBOT_DATABASE_URL -f migrations/001_init.sql
 psql $LITBOT_DATABASE_URL -f migrations/002_trigram_index.sql
+psql $LITBOT_DATABASE_URL -f migrations/003_global_notes.sql
 ```
 
 ## Ingest Documents
@@ -160,6 +167,20 @@ The response includes the generated answer, validated citations, retrieved chunk
 claims, prompt version, and trace ID. Blank questions return a 422 error, and unexpected server
 errors return a structured JSON `{"error":"Internal server error"}` response.
 
+Save a reading note through the same `/chat` route:
+
+```bash
+curl -s http://localhost:8000/chat \
+  -H 'content-type: application/json' \
+  -d '{"question":"Save this note: Hamlet opens with anxious uncertainty at the watch."}'
+```
+
+The classifier routes high-confidence note requests to the note workflow. Low-confidence note
+classifications fall back to normal question answering so LitBot does not accidentally write a
+note. A saved note response includes `intent`, `intent_confidence`, `note_status`, `note_id`,
+`note`, `original_note`, `note_work`, and `note_chunk_ids`. A rejected note returns
+`note_status="not_saved"` and `note_rejection_reason` without inserting rows.
+
 ## CLI Usage
 
 Ask from the terminal:
@@ -167,6 +188,15 @@ Ask from the terminal:
 ```bash
 uv run litbot ask "How does Victor react when the creature comes to life?"
 ```
+
+Save a reading note from the terminal:
+
+```bash
+uv run litbot ask "Save this note: Hamlet opens with anxious uncertainty at the watch."
+```
+
+When a note is saved, CLI output highlights the rewritten stored note and shows the original input
+separately.
 
 Score a JSONL answer export with the lightweight evaluator:
 
@@ -201,6 +231,9 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 - `LITBOT_RETRIEVAL_NEIGHBOR_WINDOW`: adjacent chunk distance when neighbor expansion is enabled.
   Default: `1`.
 - `LITBOT_PROMPT_VERSION`: prompt version label returned in responses.
+- `LITBOT_NOTE_PROMPT_VERSION`: prompt version label returned for note rewriting/storage.
+- `LITBOT_INTENT_CONFIDENCE_THRESHOLD`: minimum classifier confidence required to route to note
+  writing. Default: `0.65`; below this LitBot answers as a question.
 
 ## Current Retrieval And Generation Flow
 
@@ -216,6 +249,22 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 10. LangChain builds a chat prompt containing the question and retrieved source payload.
 11. `ChatOpenAI.with_structured_output()` returns typed answer data.
 12. Citation labels in the answer or citation map are validated against retrieved chunks.
+
+## Global Note Flow
+
+1. `/chat` or `litbot ask` receives the input and creates or propagates a trace ID.
+2. `IntentService` classifies the input as `question` or `note`.
+3. Note classifications below `LITBOT_INTENT_CONFIDENCE_THRESHOLD` fall back to question answering.
+4. For note intent, `NoteService` retrieves evidence using the extracted note text and any supplied
+   work filter.
+5. The note prompt rewrites the note, infers a work from corpus metadata, and returns selected
+   supporting chunk IDs.
+6. LitBot saves only nonblank rewritten notes with at least one selected retrieved chunk and an
+   inferred corpus work.
+7. The rewritten note embedding, note metadata, and `note_chunks` links are inserted in one
+   transaction, so failed chunk-link inserts roll back the note row too.
+
+See `docs/note/notes.md` for the design details and future retrieval notes.
 
 ## Implementation Plan
 

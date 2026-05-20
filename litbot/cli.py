@@ -8,14 +8,14 @@ import uvicorn
 from dotenv import load_dotenv
 
 from litbot.api.main import app as fastapi_app
+from litbot.chat import handle_chat_request
 from litbot.config import get_settings
 from litbot.corpus import fetch_public_domain_corpus
 from litbot.db import close_pool, get_connection
 from litbot.evaluation.golden import load_golden_questions, score_answers
 from litbot.evaluation.retrieval import load_retrieval_cases, result_to_dict, score_retrieval
-from litbot.generation.service import GenerationService
 from litbot.ingestion.store import IngestionService
-from litbot.models import ChatResponse, RetrievedChunk
+from litbot.models import ChatRequest, ChatResponse, RetrievedChunk
 from litbot.observability.logging import configure_logging
 from litbot.retrieval.service import RetrievalService
 
@@ -107,10 +107,9 @@ def ask(
     settings = get_settings()
     try:
         with get_connection(settings) as conn:
-            chunks = RetrievalService(conn, settings).retrieve(question)
+            response = handle_chat_request(conn, settings, ChatRequest(question=question))
     finally:
         close_pool()
-    response = GenerationService(settings).answer(question, chunks)
     if json_output:
         typer.echo(response.model_dump_json(indent=2))
         return
@@ -178,6 +177,10 @@ def _success(title: str, **fields: Any) -> None:
 
 
 def _render_chat_response(response: ChatResponse) -> None:
+    if response.note_status:
+        _render_note_response(response)
+        return
+
     typer.secho("\nAnswer", fg=typer.colors.GREEN, bold=True)
     typer.echo(_indent(response.answer.strip() or "No answer returned."))
 
@@ -193,6 +196,39 @@ def _render_chat_response(response: ChatResponse) -> None:
         typer.secho("\nUnsupported", fg=typer.colors.YELLOW, bold=True)
         for item in response.unsupported:
             typer.echo(f"  - {item}")
+
+    if response.retrieved_chunks:
+        typer.secho("\nRetrieved Context", fg=typer.colors.MAGENTA, bold=True)
+        for chunk in response.retrieved_chunks:
+            _render_chunk(chunk)
+
+    typer.secho("\nRun", fg=typer.colors.CYAN, bold=True)
+    typer.echo(f"  Trace ID       {response.trace_id}")
+    typer.echo(f"  Prompt version {response.prompt_version}")
+
+
+def _render_note_response(response: ChatResponse) -> None:
+    status = response.note_status.replace("_", " ").title()
+    color = typer.colors.GREEN if response.note_status == "saved" else typer.colors.YELLOW
+    typer.secho(f"\nNote {status}", fg=color, bold=True)
+    if response.note_status == "saved":
+        typer.echo(_indent(response.note or "No note returned."))
+        typer.echo("\nStored note differs from the original input when LitBot rewrites it.")
+    else:
+        typer.echo(_indent(response.note_rejection_reason or "The note was not saved."))
+
+    if response.original_note:
+        typer.secho("\nOriginal Input", fg=typer.colors.BLUE, bold=True)
+        typer.echo(_indent(response.original_note))
+
+    if response.note_work:
+        typer.secho("\nWork", fg=typer.colors.BLUE, bold=True)
+        typer.echo(f"  {response.note_work}")
+
+    if response.note_chunk_ids:
+        typer.secho("\nSupporting Chunks", fg=typer.colors.MAGENTA, bold=True)
+        for chunk_id in response.note_chunk_ids:
+            typer.echo(f"  - {chunk_id}")
 
     if response.retrieved_chunks:
         typer.secho("\nRetrieved Context", fg=typer.colors.MAGENTA, bold=True)

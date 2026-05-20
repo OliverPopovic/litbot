@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     retrieval_include_neighbors: bool = False
     retrieval_neighbor_window: int = 1
     prompt_version: str = "litbot-grounded-v1"
+    note_prompt_version: str = "litbot-note-v1"
+    intent_confidence_threshold: float = 0.65
     request_timeout_seconds: float = 60.0
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
 

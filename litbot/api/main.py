@@ -6,9 +6,9 @@ import structlog
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from litbot.chat import handle_chat_request
 from litbot.config import get_settings
 from litbot.db import close_pool, get_connection
-from litbot.generation.service import GenerationService
 from litbot.models import ChatRequest, ChatResponse
 from litbot.observability.logging import configure_logging
 
@@ -46,14 +46,14 @@ def chat(request: ChatRequest, x_trace_id: str | None = Header(default=None)) ->
     trace_id = x_trace_id or str(uuid.uuid4())
     settings = get_settings()
 
-    from litbot.retrieval.service import RetrievalService
-
     with get_connection(settings) as conn:
-        chunks = RetrievalService(conn, settings).retrieve(
-            request.question,
-            filters=request.filters,
-            top_k=request.top_k,
-        )
+        response = handle_chat_request(conn, settings, request, trace_id=trace_id)
 
-    logger.info("chat_request", trace_id=trace_id, chunk_count=len(chunks))
-    return GenerationService(settings).answer(request.question, chunks, trace_id=trace_id)
+    logger.info(
+        "chat_request_completed",
+        trace_id=trace_id,
+        intent=response.intent,
+        note_status=response.note_status,
+        chunk_count=len(response.retrieved_chunks),
+    )
+    return response

@@ -36,3 +36,16 @@ def test_trigram_index_migration_exists() -> None:
 
     assert "chunks_text_trgm_idx" in migration
     assert "gin_trgm_ops" in migration
+
+
+def test_global_notes_migration_defines_storage_and_indexes() -> None:
+    migration = (Path("migrations") / "003_global_notes.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS notes" in migration
+    assert "CREATE TABLE IF NOT EXISTS note_chunks" in migration
+    assert "embedding      vector(1536)" in migration
+    assert "notes_embedding_hnsw_idx" in migration
+    assert "notes_model_idx" in migration
+    assert "notes_prompt_version_idx" in migration
+    assert "notes_inferred_work_idx" in migration
+    assert "note_chunks_chunk_id_idx" in migration

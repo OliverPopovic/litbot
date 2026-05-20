@@ -73,8 +73,11 @@ def test_ask_cli_renders_readable_answer(monkeypatch) -> None:
     monkeypatch.setattr(cli, "get_settings", lambda: object())
     monkeypatch.setattr(cli, "get_connection", lambda settings: _fake_connection())
     monkeypatch.setattr(cli, "close_pool", lambda: None)
-    monkeypatch.setattr(cli, "RetrievalService", FakeRetrievalService)
-    monkeypatch.setattr(cli, "GenerationService", lambda settings: FakeGenerationService(response))
+    monkeypatch.setattr(
+        cli,
+        "handle_chat_request",
+        lambda conn, settings, request: response,
+    )
     monkeypatch.setattr(
         cli,
         "configure_logging",
@@ -89,6 +92,57 @@ def test_ask_cli_renders_readable_answer(monkeypatch) -> None:
     assert "Retrieved Context" in result.output
     assert "trace-1" in result.output
     assert '"answer"' not in result.output
+
+
+def test_ask_cli_renders_saved_note(monkeypatch) -> None:
+    runner = CliRunner()
+    response = ChatResponse(
+        answer="Saved note for Hamlet:\nHamlet opens with watchful uncertainty.",
+        citations=[],
+        retrieved_chunks=[
+            RetrievedChunk(
+                label="S1",
+                chunk_id="hamlet:00001",
+                source_id="hamlet",
+                text="Who's there?",
+                metadata={"work": "Hamlet"},
+                combined_score=0.95,
+                reason="test",
+            )
+        ],
+        prompt_version="note-test",
+        trace_id="trace-note",
+        intent="note",
+        intent_confidence=0.9,
+        note_status="saved",
+        note_id="note-1",
+        note="Hamlet opens with watchful uncertainty.",
+        original_note="Save this: Hamlet starts uncertain.",
+        note_work="Hamlet",
+        note_chunk_ids=["hamlet:00001"],
+    )
+
+    monkeypatch.setattr(cli, "get_settings", lambda: object())
+    monkeypatch.setattr(cli, "get_connection", lambda settings: _fake_connection())
+    monkeypatch.setattr(cli, "close_pool", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "handle_chat_request",
+        lambda conn, settings, request: response,
+    )
+    monkeypatch.setattr(
+        cli,
+        "configure_logging",
+        lambda stream=sys.stderr, renderer="console": None,
+    )
+
+    result = runner.invoke(cli.app, ["ask", "Save this: Hamlet starts uncertain."])
+
+    assert result.exit_code == 0
+    assert "Note Saved" in result.output
+    assert "Hamlet opens with watchful uncertainty." in result.output
+    assert "Original Input" in result.output
+    assert "hamlet:00001" in result.output
 
 
 class FakeRetrievalService:
@@ -107,14 +161,6 @@ class FakeRetrievalService:
                 reason="test",
             )
         ]
-
-
-class FakeGenerationService:
-    def __init__(self, response: ChatResponse) -> None:
-        self.response = response
-
-    def answer(self, question, chunks) -> ChatResponse:
-        return self.response
 
 
 @contextmanager

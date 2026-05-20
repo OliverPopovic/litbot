@@ -8,16 +8,9 @@ from litbot.config import Settings, get_settings
 from litbot.generation.citations import validate_and_format_citations, validate_and_format_labels
 from litbot.generation.prompts import build_prompt_value
 from litbot.langchain import make_chat_model
-from litbot.models import ChatResponse, RetrievedChunk
+from litbot.models import ChatResponse, CitationMapItem, RetrievedChunk
 
 logger = structlog.get_logger(__name__)
-
-
-class CitationMapItem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    claim: str = ""
-    sources: list[str] = Field(default_factory=list)
 
 
 class GenerationPayload(BaseModel):
