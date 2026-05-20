@@ -15,7 +15,7 @@ from litbot.db import close_pool, get_connection
 from litbot.evaluation.golden import load_golden_questions, score_answers
 from litbot.evaluation.retrieval import load_retrieval_cases, result_to_dict, score_retrieval
 from litbot.ingestion.store import IngestionService
-from litbot.models import ChatRequest, ChatResponse, RetrievedChunk
+from litbot.models import ChatRequest, ChatResponse, RetrievedChunk, RetrievedNote
 from litbot.observability.logging import configure_logging
 from litbot.retrieval.service import RetrievalService
 
@@ -180,6 +180,9 @@ def _render_chat_response(response: ChatResponse) -> None:
     if response.note_status:
         _render_note_response(response)
         return
+    if response.note_query_status:
+        _render_note_query_response(response)
+        return
 
     typer.secho("\nAnswer", fg=typer.colors.GREEN, bold=True)
     typer.echo(_indent(response.answer.strip() or "No answer returned."))
@@ -197,8 +200,38 @@ def _render_chat_response(response: ChatResponse) -> None:
         for item in response.unsupported:
             typer.echo(f"  - {item}")
 
+    if response.retrieved_notes:
+        typer.secho("\nRelevant Notes", fg=typer.colors.BLUE, bold=True)
+        for note in response.retrieved_notes:
+            _render_retrieved_note(note)
+
     if response.retrieved_chunks:
         typer.secho("\nRetrieved Context", fg=typer.colors.MAGENTA, bold=True)
+        for chunk in response.retrieved_chunks:
+            _render_chunk(chunk)
+
+    typer.secho("\nRun", fg=typer.colors.CYAN, bold=True)
+    typer.echo(f"  Trace ID       {response.trace_id}")
+    typer.echo(f"  Prompt version {response.prompt_version}")
+
+
+def _render_note_query_response(response: ChatResponse) -> None:
+    title = "Notes Found" if response.note_query_status == "found" else "Notes Not Found"
+    color = typer.colors.GREEN if response.note_query_status == "found" else typer.colors.YELLOW
+    typer.secho(f"\n{title}", fg=color, bold=True)
+    typer.echo(_indent(response.answer.strip() or "No notes returned."))
+
+    if response.retrieved_notes:
+        typer.secho("\nStored Notes", fg=typer.colors.BLUE, bold=True)
+        for note in response.retrieved_notes:
+            _render_retrieved_note(note)
+
+    if response.note_query_has_more:
+        typer.secho("\nLimit", fg=typer.colors.YELLOW, bold=True)
+        typer.echo("  This is a capped preview; pagination is not available in v1.")
+
+    if response.retrieved_chunks:
+        typer.secho("\nSupporting Chunks", fg=typer.colors.MAGENTA, bold=True)
         for chunk in response.retrieved_chunks:
             _render_chunk(chunk)
 
@@ -251,6 +284,21 @@ def _render_chunk(chunk: RetrievedChunk) -> None:
         score_parts.append(f"trigram={chunk.trigram_score:.3f}")
     typer.echo(f"  [{chunk.label}] {work}  {chunk.chunk_id}  {' '.join(score_parts)}")
     typer.echo(_indent(_preview(chunk.text), spaces=4))
+
+
+def _render_retrieved_note(note: RetrievedNote) -> None:
+    score_parts = [f"score={note.combined_score:.3f}"]
+    if note.vector_score is not None:
+        score_parts.append(f"vector={note.vector_score:.3f}")
+    if note.lexical_score is not None:
+        score_parts.append(f"lexical={note.lexical_score:.3f}")
+    if note.trigram_score is not None:
+        score_parts.append(f"trigram={note.trigram_score:.3f}")
+    typer.echo(f"  [{note.label}] {note.inferred_work}  {note.note_id}  {' '.join(score_parts)}")
+    typer.echo(_indent(note.rewritten_note, spaces=4))
+    if note.supporting_chunks:
+        chunk_ids = ", ".join(chunk.chunk_id for chunk in note.supporting_chunks)
+        typer.echo(f"    Supporting chunks: {chunk_ids}")
 
 
 def _render_metrics(title: str, payload: dict[str, Any]) -> None:

@@ -45,6 +45,9 @@ def test_global_notes_migration_defines_storage_and_indexes() -> None:
     assert "CREATE TABLE IF NOT EXISTS note_chunks" in migration
     assert "embedding      vector(1536)" in migration
     assert "notes_embedding_hnsw_idx" in migration
+    assert "notes_rewritten_note_fts_idx" in migration
+    assert "notes_rewritten_note_trgm_idx" in migration
+    assert "notes_inferred_work_lower_idx" in migration
     assert "notes_model_idx" in migration
     assert "notes_prompt_version_idx" in migration
     assert "notes_inferred_work_idx" in migration

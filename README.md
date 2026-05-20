@@ -23,9 +23,10 @@ monitoring.
 - Sends retrieved chunks to an OpenAI chat model through LangChain.
 - Requires structured model output containing `answer`, `citation_map`, and `unsupported`.
 - Validates citation labels against the retrieved chunks before returning the response.
-- Classifies `/chat` and `litbot ask` inputs as questions or reading notes. High-confidence notes
-  are grounded in retrieved corpus chunks, rewritten for concise factuality, embedded, and stored
-  globally with supporting chunk links.
+- Classifies `/chat` and `litbot ask` inputs as questions, reading-note writes, or saved-note
+  retrieval. High-confidence notes are grounded in retrieved corpus chunks, rewritten for concise
+  factuality, embedded, and stored globally with supporting chunk links. Note ownership is not
+  implemented yet.
 
 ## Tools
 
@@ -56,8 +57,8 @@ monitoring.
 - `litbot/ingestion/`: parsing, normalization, chunking, embedding, and first-party table storage.
 - `litbot/retrieval/`: hybrid pgvector plus PostgreSQL full-text retrieval over `chunks`.
 - `litbot/generation/`: LangChain prompt construction, structured generation, and citation validation.
-- `litbot/intent.py` and `litbot/notes/`: intent classification plus grounded note rewriting and
-  storage.
+- `litbot/intent.py` and `litbot/notes/`: intent classification plus grounded note rewriting,
+  storage, and retrieval.
 - `litbot/langchain.py`: LangChain OpenAI factories and retrieval-row conversion helpers.
 - `litbot/models.py`: Pydantic request, response, metadata, chunk, and citation models.
 - `corpus/`: small public-domain sample corpus.
@@ -176,10 +177,12 @@ curl -s http://localhost:8000/chat \
 ```
 
 The classifier routes high-confidence note requests to the note workflow. Low-confidence note
-classifications fall back to normal question answering so LitBot does not accidentally write a
-note. A saved note response includes `intent`, `intent_confidence`, `note_status`, `note_id`,
-`note`, `original_note`, `note_work`, and `note_chunk_ids`. A rejected note returns
-`note_status="not_saved"` and `note_rejection_reason` without inserting rows.
+classifications fall back to normal question answering so LitBot does not accidentally write or
+retrieve notes. A saved note response includes `intent`, `intent_confidence`, `note_status`,
+`note_id`, `note`, `original_note`, `note_work`, and `note_chunk_ids`. A rejected note returns
+`note_status="not_saved"` and `note_rejection_reason` without inserting rows. Explicit note
+retrieval uses `intent="note_query"` and returns `retrieved_notes`; broad note lists are capped
+previews in v1.
 
 ## CLI Usage
 
@@ -233,7 +236,16 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 - `LITBOT_PROMPT_VERSION`: prompt version label returned in responses.
 - `LITBOT_NOTE_PROMPT_VERSION`: prompt version label returned for note rewriting/storage.
 - `LITBOT_INTENT_CONFIDENCE_THRESHOLD`: minimum classifier confidence required to route to note
-  writing. Default: `0.65`; below this LitBot answers as a question.
+  writing or note retrieval. Default: `0.65`; below this LitBot answers as a question.
+- `LITBOT_NOTE_QUERY_TOP_K`: maximum notes returned for explicit note retrieval. Default: `20`.
+- `LITBOT_QUESTION_NOTE_TOP_K`: maximum supplemental notes shown after ordinary answers. Default:
+  `3`.
+- `LITBOT_NOTE_CANDIDATE_TOP_K`: note candidates considered before LLM relevance filtering.
+  Default: `12`.
+- `LITBOT_NOTE_MIN_VECTOR_SCORE`: minimum note vector score for relevance-filter eligibility.
+  Default: `0.35`.
+- `LITBOT_NOTE_MIN_TRIGRAM_SCORE`: minimum note trigram score for relevance-filter eligibility.
+  Default: `0.18`.
 
 ## Current Retrieval And Generation Flow
 
@@ -253,7 +265,7 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 ## Global Note Flow
 
 1. `/chat` or `litbot ask` receives the input and creates or propagates a trace ID.
-2. `IntentService` classifies the input as `question` or `note`.
+2. `IntentService` classifies the input as `question`, `note`, or `note_query`.
 3. Note classifications below `LITBOT_INTENT_CONFIDENCE_THRESHOLD` fall back to question answering.
 4. For note intent, `NoteService` retrieves evidence using the extracted note text and any supplied
    work filter.
@@ -264,7 +276,10 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 7. The rewritten note embedding, note metadata, and `note_chunks` links are inserted in one
    transaction, so failed chunk-link inserts roll back the note row too.
 
-See `docs/note/notes.md` for the design details and future retrieval notes.
+Explicit `note_query` requests return stored note text directly, with linked corpus chunks when
+available. Ordinary question answering can append strictly relevant saved notes after the cited
+answer; notes are not treated as corpus evidence or citations. See `docs/note/notes.md` for the
+design details and the current global-note ownership limitation.
 
 ## Implementation Plan
 

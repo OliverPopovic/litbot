@@ -25,6 +25,12 @@ CREATE TABLE IF NOT EXISTS note_chunks (
 
 CREATE INDEX IF NOT EXISTS notes_embedding_hnsw_idx
     ON notes USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS notes_rewritten_note_fts_idx
+    ON notes USING gin (to_tsvector('english', rewritten_note));
+CREATE INDEX IF NOT EXISTS notes_rewritten_note_trgm_idx
+    ON notes USING gin (rewritten_note gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS notes_inferred_work_lower_idx
+    ON notes(lower(inferred_work));
 CREATE INDEX IF NOT EXISTS notes_model_idx
     ON notes(model);
 CREATE INDEX IF NOT EXISTS notes_prompt_version_idx

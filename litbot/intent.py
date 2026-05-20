@@ -14,14 +14,18 @@ logger = structlog.get_logger(__name__)
 INTENT_SYSTEM_PROMPT = """
 You classify LitBot user inputs before retrieval. Return note only when the user is trying to
 store an observation, annotation, margin note, thesis fragment, or reading note about a literary
-work. Return question for requests that ask for an answer, explanation, comparison, quote lookup,
-or anything ambiguous. Low confidence should be reflected in confidence below 0.65.
+work. Return note_query when the user is asking to retrieve, list, search, or check saved notes.
+Return question for requests that ask for an answer, explanation, comparison, quote lookup, or
+anything ambiguous. Low confidence should be reflected in confidence below 0.65.
 """.strip()
 
 INTENT_DEVELOPER_PROMPT = """
-Return valid structured data with intent, confidence, extracted_note_text, extracted_work, and
-reason. If intent is note, extracted_note_text should be the note content to ground and rewrite,
-not command boilerplate. If a work is clearly named, put it in extracted_work; otherwise null.
+Return valid structured data with intent, confidence, extracted_note_text, extracted_note_query,
+extracted_work, note_query_mode, and reason. If intent is note, extracted_note_text should be the
+note content to ground and rewrite, not command boilerplate. If intent is note_query,
+extracted_note_query should be the search target without command boilerplate, and note_query_mode
+should be list_all only for broad requests like "all my notes"; otherwise search. If a work is
+clearly named, put it in extracted_work; otherwise null.
 """.strip()
 
 INTENT_PROMPT = ChatPromptTemplate.from_messages(
@@ -62,6 +66,7 @@ class IntentService:
             intent=classification.intent,
             confidence=classification.confidence,
             extracted_work=classification.extracted_work,
+            note_query_mode=classification.note_query_mode,
         )
         return classification
 

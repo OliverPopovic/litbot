@@ -1,7 +1,9 @@
+from datetime import UTC, datetime
+
 from fastapi.testclient import TestClient
 
 from litbot.api.main import app
-from litbot.models import ChatResponse
+from litbot.models import ChatResponse, RetrievedNote
 
 
 def test_health_endpoint_returns_ok() -> None:
@@ -67,6 +69,53 @@ def test_chat_saved_note_response_serializes_note_fields(monkeypatch) -> None:
     assert payload["original_note"] == "Save this note."
     assert payload["note_work"] == "Hamlet"
     assert payload["note_chunk_ids"] == ["hamlet:00001"]
+
+
+def test_chat_note_query_response_serializes_retrieved_notes(monkeypatch) -> None:
+    response = ChatResponse(
+        answer="I found these saved notes:\n- [N1] Hamlet: Hamlet begins with uncertainty.",
+        citations=[],
+        retrieved_chunks=[],
+        retrieved_notes=[
+            RetrievedNote(
+                label="N1",
+                note_id="note-1",
+                rewritten_note="Hamlet begins with uncertainty.",
+                original_input="Save this.",
+                inferred_work="Hamlet",
+                matched_work="Hamlet",
+                created_at=datetime.now(UTC),
+                combined_score=1.0,
+                reason="test",
+            )
+        ],
+        prompt_version="note-test",
+        trace_id="trace-1",
+        intent="note_query",
+        intent_confidence=0.9,
+        note_query_status="found",
+        note_query_has_more=False,
+    )
+
+    monkeypatch.setattr("litbot.api.main.get_settings", lambda: object())
+    monkeypatch.setattr("litbot.api.main.get_connection", lambda settings: _fake_connection())
+    monkeypatch.setattr(
+        "litbot.api.main.handle_chat_request",
+        lambda conn, settings, request, trace_id=None: response,
+    )
+
+    with TestClient(app) as client:
+        result = client.post(
+            "/chat",
+            json={"question": "What notes did I make for Hamlet?"},
+            headers={"x-trace-id": "trace-1"},
+        )
+
+    payload = result.json()
+    assert result.status_code == 200
+    assert payload["intent"] == "note_query"
+    assert payload["note_query_status"] == "found"
+    assert payload["retrieved_notes"][0]["rewritten_note"] == "Hamlet begins with uncertainty."
 
 
 class _FakeConnection:

@@ -1,11 +1,12 @@
 import sys
 from contextlib import contextmanager
+from datetime import UTC, datetime
 
 from typer.testing import CliRunner
 
 from litbot import cli
 from litbot.evaluation.retrieval import RetrievalCase
-from litbot.models import ChatResponse, Citation, RetrievedChunk
+from litbot.models import ChatResponse, Citation, RetrievedChunk, RetrievedNote
 
 
 def test_eval_retrieval_cli_scores_with_mocked_retriever(monkeypatch) -> None:
@@ -143,6 +144,54 @@ def test_ask_cli_renders_saved_note(monkeypatch) -> None:
     assert "Hamlet opens with watchful uncertainty." in result.output
     assert "Original Input" in result.output
     assert "hamlet:00001" in result.output
+
+
+def test_ask_cli_renders_retrieved_notes(monkeypatch) -> None:
+    runner = CliRunner()
+    response = ChatResponse(
+        answer="I found these saved notes:\n- [N1] Hamlet: Hamlet begins with uncertainty.",
+        citations=[],
+        retrieved_chunks=[],
+        retrieved_notes=[
+            RetrievedNote(
+                label="N1",
+                note_id="note-1",
+                rewritten_note="Hamlet begins with uncertainty.",
+                original_input="Save this.",
+                inferred_work="Hamlet",
+                created_at=datetime.now(UTC),
+                combined_score=1.0,
+                reason="test",
+            )
+        ],
+        prompt_version="note-test",
+        trace_id="trace-note-query",
+        intent="note_query",
+        intent_confidence=0.9,
+        note_query_status="found",
+        note_query_has_more=False,
+    )
+
+    monkeypatch.setattr(cli, "get_settings", lambda: object())
+    monkeypatch.setattr(cli, "get_connection", lambda settings: _fake_connection())
+    monkeypatch.setattr(cli, "close_pool", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "handle_chat_request",
+        lambda conn, settings, request: response,
+    )
+    monkeypatch.setattr(
+        cli,
+        "configure_logging",
+        lambda stream=sys.stderr, renderer="console": None,
+    )
+
+    result = runner.invoke(cli.app, ["ask", "What notes did I make for Hamlet?"])
+
+    assert result.exit_code == 0
+    assert "Notes Found" in result.output
+    assert "Stored Notes" in result.output
+    assert "Hamlet begins with uncertainty." in result.output
 
 
 class FakeRetrievalService:

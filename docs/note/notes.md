@@ -1,14 +1,15 @@
 # Global Reading Notes
 
 LitBot supports global, corpus-grounded reading notes through the existing `/chat` API route and
-`litbot ask` CLI command. There is no note listing or fetch route in this phase.
+`litbot ask` CLI command. Notes are global in this phase: there is no user, session, namespace, or
+ownership field yet. User ownership is planned for a later version.
 
 ## Classification
 
-Every input is classified by `IntentService` as `question` or `note` with a confidence score. A
-classification below `LITBOT_INTENT_CONFIDENCE_THRESHOLD` routes to normal question answering, even
-when the classifier guessed `note`. This favors avoiding accidental writes over aggressive note
-capture.
+Every input is classified by `IntentService` as `question`, `note`, or `note_query` with a
+confidence score. A classification below `LITBOT_INTENT_CONFIDENCE_THRESHOLD` routes to normal
+question answering, even when the classifier guessed `note` or `note_query`. This favors avoiding
+accidental writes or note lookups over aggressive note handling.
 
 The classifier may extract note text and a named work. The note workflow retrieves with the request
 filters supplied by the caller; if no `filters.work` is present, it retrieves broadly and requires
@@ -65,5 +66,7 @@ Question responses keep the existing answer fields and add optional `intent` and
 
 ## Future Retrieval
 
-The saved note embedding and `note_chunks` table are intended for future note retrieval and citation
-display. Notes are global in v1: there is no user, session, namespace, or ownership field yet.
+Saved note embeddings and `note_chunks` support note retrieval. Explicit note retrieval returns a
+capped preview of matching notes and their linked corpus chunks. Pagination is out of scope for v1.
+Ordinary question answering may include strictly relevant saved notes after the cited corpus answer,
+but notes are not treated as corpus evidence or citations.

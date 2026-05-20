@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     retrieval_rrf_k: int = 60
     retrieval_include_neighbors: bool = False
     retrieval_neighbor_window: int = 1
+    note_query_top_k: int = 20
+    question_note_top_k: int = 3
+    note_candidate_top_k: int = 12
+    note_min_vector_score: float = 0.35
+    note_min_trigram_score: float = 0.18
     prompt_version: str = "litbot-grounded-v1"
     note_prompt_version: str = "litbot-note-v1"
     intent_confidence_threshold: float = 0.65

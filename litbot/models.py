@@ -79,6 +79,23 @@ class RetrievedChunk(LitBotModel):
     trigram_score: float | None = None
 
 
+class RetrievedNote(LitBotModel):
+    label: str
+    note_id: str
+    rewritten_note: str
+    original_input: str
+    inferred_work: str
+    matched_work: str | None = None
+    source_id: str | None = None
+    created_at: datetime
+    supporting_chunks: list[RetrievedChunk] = Field(default_factory=list)
+    combined_score: float
+    reason: str
+    vector_score: float | None = None
+    lexical_score: float | None = None
+    trigram_score: float | None = None
+
+
 class ChatRequest(LitBotModel):
     question: str
     filters: dict[str, Any] = Field(default_factory=dict)
@@ -93,10 +110,12 @@ class ChatRequest(LitBotModel):
 
 
 class IntentClassification(LitBotModel):
-    intent: Literal["question", "note"] = "question"
+    intent: Literal["question", "note", "note_query"] = "question"
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     extracted_note_text: str | None = None
+    extracted_note_query: str | None = None
     extracted_work: str | None = None
+    note_query_mode: Literal["search", "list_all"] | None = None
     reason: str | None = None
 
 
@@ -129,8 +148,11 @@ class ChatResponse(LitBotModel):
     trace_id: str
     citation_map: list[dict[str, Any]] = Field(default_factory=list)
     unsupported: list[str] = Field(default_factory=list)
-    intent: Literal["question", "note"] | None = None
+    intent: Literal["question", "note", "note_query"] | None = None
     intent_confidence: float | None = None
+    retrieved_notes: list[RetrievedNote] = Field(default_factory=list)
+    note_query_status: Literal["found", "not_found"] | None = None
+    note_query_has_more: bool | None = None
     note_status: Literal["saved", "not_saved"] | None = None
     note_id: str | None = None
     note: str | None = None
