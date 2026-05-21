@@ -1,10 +1,10 @@
 import json
 
-from litbot.generation.prompts import build_messages, build_prompt_value
+from litbot.generation.prompts import build_prompt_value, build_user_payload
 from litbot.models import RetrievedChunk
 
 
-def test_build_messages_includes_structured_sources() -> None:
+def test_build_user_payload_includes_structured_sources() -> None:
     chunk = RetrievedChunk(
         label="S1",
         chunk_id="chunk-1",
@@ -21,10 +21,8 @@ def test_build_messages_includes_structured_sources() -> None:
         reason="test",
     )
 
-    messages = build_messages("What happens?", [chunk])
-    payload = json.loads(messages[-1]["content"])
+    payload = json.loads(build_user_payload("What happens?", [chunk]))
 
-    assert messages[0]["role"] == "system"
     assert payload["question"] == "What happens?"
     assert payload["retrieved_sources"][0]["label"] == "S1"
     assert payload["retrieved_sources"][0]["chunk_text"] == "A passage."

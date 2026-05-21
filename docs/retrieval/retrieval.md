@@ -46,7 +46,9 @@ The current retrieval-related defaults are:
 | `LITBOT_RETRIEVAL_NEIGHBOR_WINDOW` | `1` | Neighbor distance on each side when neighbor expansion is enabled. |
 | `LITBOT_DATABASE_URL` | `postgresql://litbot:litbot@localhost:5432/litbot` | PostgreSQL database used for first-party storage, vector search, and lexical SQL. |
 
-`LITBOT_VECTOR_COLLECTION_NAME` may still exist in older environments, but active retrieval no longer uses a LangChain PGVector collection name.
+Older environments may still contain `LITBOT_VECTOR_COLLECTION_NAME` from the previous LangChain
+PGVector storage path. Active retrieval no longer defines or reads that setting; LitBot now queries
+the first-party `chunks` table directly.
 
 ## Storage Baseline
 

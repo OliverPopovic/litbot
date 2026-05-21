@@ -52,12 +52,12 @@ The system is intentionally small right now: it has a FastAPI API, a Typer CLI, 
 
 1. Filters are normalized by dropping `None` values.
 2. The question is embedded with LangChain `OpenAIEmbeddings` using the configured embedding model and dimensions.
-3. Vector retrieval queries `chunks` with `ORDER BY embedding <=> %s::vector`, returning `1 - distance` as `vector_score` for up to `top_k * 3` candidates.
-4. Lexical retrieval queries `chunks` with `to_tsvector('english', text) @@ plainto_tsquery('english', question)`, returning `ts_rank_cd` as `lexical_score` for up to `top_k * 3` candidates.
-5. Metadata filters are translated into SQL predicates against `chunks.metadata`: scalar values compare `metadata->>key` as strings, and list/object values use JSONB containment.
-6. Results are merged by `chunk_id`; chunks found by both passes keep both scores, vector-only chunks have no lexical score, and lexical-only chunks use `vector_score = 0.0`.
-7. Vector and lexical score sets are each normalized before applying the weighted sum: `0.75 * normalized_vector + 0.25 * normalized_lexical`.
-8. Each returned chunk gets a `reason` of `hybrid vector + lexical match`, `vector match only`, or `lexical match only`.
+3. Vector retrieval queries `chunks` with `ORDER BY embedding <=> %s::vector`, returning `1 - distance` as `vector_score` for a configured candidate pool.
+4. Full-text retrieval queries `chunks` with `to_tsvector('english', text) @@ plainto_tsquery('english', cleaned_query)`, returning `ts_rank_cd` as `lexical_score`.
+5. Trigram retrieval queries `chunks` with `word_similarity(question, text)` for fuzzy phrase and quote matching.
+6. Metadata filters are translated into SQL predicates against `chunks.metadata`: scalar values compare `metadata->>key` as strings, and list/object values use JSONB containment.
+7. Results are merged by `chunk_id` and ranked with Reciprocal Rank Fusion over semantic, full-text, and trigram lanes.
+8. Neighbor chunks can optionally be added around retrieved seeds when configured.
 9. The sorted top `k` chunks are labeled `S1`, `S2`, and so on.
 
 ## Storage Model

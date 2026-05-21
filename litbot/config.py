@@ -13,7 +13,6 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4.1-mini"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
-    vector_collection_name: str = "litbot_chunks"
     top_k: int = 8
     retrieval_candidate_multiplier: int = 8
     retrieval_min_candidates: int = 50

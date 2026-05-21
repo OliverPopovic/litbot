@@ -61,14 +61,5 @@ def _prompt_metadata(chunk: RetrievedChunk) -> dict[str, object]:
     return metadata
 
 
-def build_messages(question: str, chunks: list[RetrievedChunk]) -> list[dict[str, str]]:
-    user_payload = build_user_payload(question, chunks)
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "developer", "content": DEVELOPER_PROMPT},
-        {"role": "user", "content": user_payload},
-    ]
-
-
 def build_prompt_value(question: str, chunks: list[RetrievedChunk]):
     return PROMPT_TEMPLATE.invoke({"user_payload": build_user_payload(question, chunks)})

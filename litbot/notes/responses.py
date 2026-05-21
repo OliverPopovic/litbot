@@ -1,5 +1,3 @@
-from typing import Any
-
 import structlog
 
 from litbot.config import Settings, get_settings
@@ -134,10 +132,6 @@ class NoteResponseFactory:
             note_work=note_work,
             note_chunk_ids=note_chunk_ids,
         )
-
-
-def response_json(response: ChatResponse) -> dict[str, Any]:
-    return response.model_dump(mode="json")
 
 
 def _unique_supporting_chunks(notes: list[RetrievedNote]) -> list[RetrievedChunk]:

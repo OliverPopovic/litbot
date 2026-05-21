@@ -829,10 +829,6 @@ def _note_chunk_rows(conn, note_id: str) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
-def _note_count(conn) -> int:
-    return len(_note_rows(conn))
-
-
 def _pending_consumed(conn, action_id: str | None) -> bool:
     if not action_id:
         return False
