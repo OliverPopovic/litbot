@@ -124,6 +124,82 @@ def test_note_query_intent_routes_to_note_retrieval() -> None:
     assert note_retrieval.search_calls[0]["exact_work"] == "Hamlet"
 
 
+def test_note_delete_intent_routes_to_preview_with_context() -> None:
+    note = FakeNoteService()
+    orchestrator = ChatOrchestrator(
+        conn=object(),
+        settings=Settings(intent_confidence_threshold=0.65),
+        intent_service=FakeIntentService(
+            IntentClassification(intent="note_delete", confidence=0.9)
+        ),
+        retrieval_service=FakeRetrievalService(),
+        generation_service=FakeGenerationService(),
+        note_service=note,
+        note_retrieval_service=FakeNoteRetrievalService(),
+        note_relevance_service=FakeNoteRelevanceService(),
+    )
+
+    response = orchestrator.handle(
+        ChatRequest(
+            question="Delete this.",
+            note_context={"active_note_id": "note-1", "retrieved_note_ids": ["note-1"]},
+        ),
+        trace_id="trace-1",
+    )
+
+    assert response.note_operation == "delete"
+    assert response.note_operation_status == "pending_confirmation"
+    assert note.delete_calls[0]["note_context"].active_note_id == "note-1"
+
+
+def test_note_delete_explicit_uuid_target_is_parsed_from_question() -> None:
+    note = FakeNoteService()
+    note_id = "123e4567-e89b-12d3-a456-426614174000"
+    orchestrator = ChatOrchestrator(
+        conn=object(),
+        settings=Settings(intent_confidence_threshold=0.65),
+        intent_service=FakeIntentService(
+            IntentClassification(intent="note_delete", confidence=0.9)
+        ),
+        retrieval_service=FakeRetrievalService(),
+        generation_service=FakeGenerationService(),
+        note_service=note,
+        note_retrieval_service=FakeNoteRetrievalService(),
+        note_relevance_service=FakeNoteRelevanceService(),
+    )
+
+    orchestrator.handle(ChatRequest(question=f"Delete note {note_id}"), trace_id="trace-1")
+
+    assert note.delete_calls[0]["target_reference"] == note_id
+
+
+def test_pending_confirmation_bypasses_intent_classifier() -> None:
+    note = FakeNoteService()
+    intent = FakeIntentService(IntentClassification(intent="question", confidence=0.1))
+    orchestrator = ChatOrchestrator(
+        conn=object(),
+        settings=Settings(intent_confidence_threshold=0.65),
+        intent_service=intent,
+        retrieval_service=FakeRetrievalService(),
+        generation_service=FakeGenerationService(),
+        note_service=note,
+        note_retrieval_service=FakeNoteRetrievalService(),
+        note_relevance_service=FakeNoteRelevanceService(),
+    )
+
+    response = orchestrator.handle(
+        ChatRequest(
+            question="Confirm note action.",
+            pending_note_action_id="action-1",
+            confirm_note_action=True,
+        ),
+        trace_id="trace-1",
+    )
+
+    assert response.note_operation_status == "completed"
+    assert note.confirm_calls == [("action-1", "trace-1")]
+
+
 def test_question_supplement_skips_relevance_filter_without_note_candidates() -> None:
     relevance = FakeNoteRelevanceService()
     orchestrator = ChatOrchestrator(
@@ -147,8 +223,10 @@ def test_question_supplement_skips_relevance_filter_without_note_candidates() ->
 class FakeIntentService:
     def __init__(self, classification: IntentClassification) -> None:
         self.classification = classification
+        self.calls = []
 
     def classify(self, _user_input: str) -> IntentClassification:
+        self.calls.append(_user_input)
         return self.classification
 
 
@@ -190,6 +268,8 @@ class FakeGenerationService:
 class FakeNoteService:
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.delete_calls: list[dict] = []
+        self.confirm_calls: list[tuple[str, str]] = []
 
     def process(self, **kwargs) -> ChatResponse:
         self.calls.append(kwargs)
@@ -207,6 +287,39 @@ class FakeNoteService:
             note_work="Hamlet",
             note_chunk_ids=["chunk-1"],
         )
+
+    def preview_delete(self, **kwargs) -> ChatResponse:
+        self.delete_calls.append(kwargs)
+        return ChatResponse(
+            answer="Please confirm deleting this note.",
+            citations=[],
+            retrieved_chunks=[],
+            prompt_version="note-test",
+            trace_id=kwargs["trace_id"],
+            intent="note_delete",
+            intent_confidence=kwargs["intent_confidence"],
+            note_operation="delete",
+            note_operation_status="pending_confirmation",
+            pending_note_action_id="action-1",
+            target_note_ids=["note-1"],
+        )
+
+    def confirm_pending_action(self, action_id, *, trace_id) -> ChatResponse:
+        self.confirm_calls.append((action_id, trace_id))
+        return ChatResponse(
+            answer="Deleted 1 saved note.",
+            citations=[],
+            retrieved_chunks=[],
+            prompt_version="note-test",
+            trace_id=trace_id,
+            note_operation="delete",
+            note_operation_status="completed",
+            pending_note_action_id=action_id,
+            target_note_ids=["note-1"],
+        )
+
+    def cancel_pending_action(self, action_id, *, trace_id) -> ChatResponse:
+        return self.confirm_pending_action(action_id, trace_id=trace_id)
 
 
 class FakeNoteRetrievalResult:

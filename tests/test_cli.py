@@ -1,3 +1,4 @@
+import json
 import sys
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -192,6 +193,45 @@ def test_ask_cli_renders_retrieved_notes(monkeypatch) -> None:
     assert "Notes Found" in result.output
     assert "Stored Notes" in result.output
     assert "Hamlet begins with uncertainty." in result.output
+
+
+def test_cli_state_missing_or_malformed_returns_no_context(monkeypatch, tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    state_path.write_text("{not json", encoding="utf-8")
+    monkeypatch.setenv(cli.CLI_STATE_ENV, str(state_path))
+
+    assert cli._load_cli_note_context() is None
+
+
+def test_cli_state_writes_note_context_atomically(monkeypatch, tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv(cli.CLI_STATE_ENV, str(state_path))
+    response = ChatResponse(
+        answer="I found these saved notes.",
+        citations=[],
+        retrieved_chunks=[],
+        retrieved_notes=[
+            RetrievedNote(
+                label="N1",
+                note_id="note-1",
+                rewritten_note="Hamlet begins with uncertainty.",
+                original_input="Save this.",
+                inferred_work="Hamlet",
+                created_at=datetime.now(UTC),
+                combined_score=1.0,
+                reason="test",
+            )
+        ],
+        prompt_version="note-test",
+        trace_id="trace-note-query",
+    )
+
+    cli._save_cli_note_context(response)
+
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["note_context"]["active_note_id"] == "note-1"
+    assert payload["note_context"]["retrieved_note_ids"] == ["note-1"]
+    assert not state_path.with_name("state.json.tmp").exists()
 
 
 class FakeRetrievalService:

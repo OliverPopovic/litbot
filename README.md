@@ -99,6 +99,7 @@ Apply the database schema:
 psql $LITBOT_DATABASE_URL -f migrations/001_init.sql
 psql $LITBOT_DATABASE_URL -f migrations/002_trigram_index.sql
 psql $LITBOT_DATABASE_URL -f migrations/003_global_notes.sql
+psql $LITBOT_DATABASE_URL -f migrations/004_pending_note_actions.sql
 ```
 
 ## Ingest Documents
@@ -184,6 +185,11 @@ retrieve notes. A saved note response includes `intent`, `intent_confidence`, `n
 retrieval uses `intent="note_query"` and returns `retrieved_notes`; broad note lists are capped
 previews in v1.
 
+Edit or delete requests also go through `/chat`. They return
+`note_operation_status="pending_confirmation"` and a `pending_note_action_id`; send a second
+request with that ID and `confirm_note_action=true` to execute it, or `cancel_note_action=true` to
+cancel. Pending actions expire after 10 minutes and can be confirmed only once.
+
 ## CLI Usage
 
 Ask from the terminal:
@@ -200,6 +206,10 @@ uv run litbot ask "Save this note: Hamlet opens with anxious uncertainty at the 
 
 When a note is saved, CLI output highlights the rewritten stored note and shows the original input
 separately.
+
+Edit and delete requests from the CLI prompt for confirmation before execution. The CLI keeps the
+last retrieved single note in `~/.litbot/state.json`, so follow-up requests like “delete this” can
+refer to it; set `LITBOT_CLI_STATE_PATH` to override that state location.
 
 Score a JSONL answer export with the lightweight evaluator:
 
@@ -265,7 +275,8 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 ## Global Note Flow
 
 1. `/chat` or `litbot ask` receives the input and creates or propagates a trace ID.
-2. `IntentService` classifies the input as `question`, `note`, or `note_query`.
+2. `IntentService` classifies the input as `question`, `note`, `note_query`, `note_edit`,
+   `note_delete`, or `note_delete_all`.
 3. Note classifications below `LITBOT_INTENT_CONFIDENCE_THRESHOLD` fall back to question answering.
 4. For note intent, `NoteService` retrieves evidence using the extracted note text and any supplied
    work filter.
@@ -275,6 +286,8 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
    inferred corpus work.
 7. The rewritten note embedding, note metadata, and `note_chunks` links are inserted in one
    transaction, so failed chunk-link inserts roll back the note row too.
+8. Edit and delete requests create a pending action first; confirmation locks and consumes that
+   action in the same transaction as the edit or hard delete.
 
 Explicit `note_query` requests return stored note text directly, with linked corpus chunks when
 available. Ordinary question answering can append strictly relevant saved notes after the cited

@@ -6,10 +6,11 @@ ownership field yet. User ownership is planned for a later version.
 
 ## Classification
 
-Every input is classified by `IntentService` as `question`, `note`, or `note_query` with a
-confidence score. A classification below `LITBOT_INTENT_CONFIDENCE_THRESHOLD` routes to normal
-question answering, even when the classifier guessed `note` or `note_query`. This favors avoiding
-accidental writes or note lookups over aggressive note handling.
+Every input is classified by `IntentService` as `question`, `note`, `note_query`, `note_edit`,
+`note_delete`, or `note_delete_all` with a confidence score. A classification below
+`LITBOT_INTENT_CONFIDENCE_THRESHOLD` routes to normal question answering, even when the classifier
+guessed a note intent. This favors avoiding accidental writes or note lookups over aggressive note
+handling.
 
 The classifier may extract note text and a named work. The note workflow retrieves with the request
 filters supplied by the caller; if no `filters.work` is present, it retrieves broadly and requires
@@ -42,6 +43,10 @@ corpus.”
 - `note_chunks`: a join table from `notes.note_id` to `chunks.chunk_id`, preserving retrieved rank
   and source label.
 
+`migrations/004_pending_note_actions.sql` adds `pending_note_actions` for confirmed note edits and
+deletes. Pending actions store the operation payload, expire after 10 minutes, and record
+`consumed_at` when confirmed or cancelled.
+
 The service embeds the rewritten note, not the original input. The original input is retained only
 for audit and transparency.
 
@@ -50,6 +55,30 @@ for audit and transparency.
 Note insertion and chunk-link insertion run in a single database transaction. If any `note_chunks`
 insert fails, the note row is rolled back with it. This prevents saved notes from existing without
 their grounding evidence.
+
+Confirmed note mutations also run transactionally. Confirmation locks the pending action with
+`FOR UPDATE`, rejects missing, expired, or already-consumed actions, applies the edit or hard delete,
+and sets `consumed_at` before commit so retries cannot execute the same action twice.
+
+## Edit And Delete
+
+Edit and delete are two-step operations. The preview response sets
+`note_operation_status="pending_confirmation"` and returns `pending_note_action_id`; a later request
+with that ID and `confirm_note_action=true` executes the mutation, while `cancel_note_action=true`
+consumes the pending action without mutating notes.
+
+Edits re-run note retrieval, grounding, rewriting, and embedding before a pending action is created.
+If grounding fails, the edit response is `rejected` and no pending action is stored. Confirmed edits
+update the existing note row in place, keep `note_id` stable, refresh `note_chunks`, and allow
+`inferred_work` to change to the newly grounded work.
+
+Deletes are hard deletes. Single-note deletes snapshot the target note in the pending action.
+Delete-all snapshots the current global note IDs and previews the exact count before confirmation;
+confirmation deletes only those snapshotted IDs. With no notes, delete-all returns a clean completed
+response without creating a pending action.
+
+Implicit references such as “edit this” or “delete it” use `ChatRequest.note_context.active_note_id`.
+If context is absent, stale, or ambiguous, LitBot rejects the request without mutation.
 
 ## Response Shape
 
@@ -63,6 +92,11 @@ Question responses keep the existing answer fields and add optional `intent` and
 - `note_work`: the inferred corpus work when saved.
 - `note_chunk_ids`: selected supporting chunks.
 - `note_rejection_reason`: present for rejected notes.
+- `note_operation`: `edit`, `delete`, or `delete_all`.
+- `note_operation_status`: `pending_confirmation`, `completed`, `cancelled`, `not_found`,
+  `ambiguous`, or `rejected`.
+- `pending_note_action_id`: present when confirmation is required.
+- `target_note_ids`: note IDs affected by a pending or completed operation.
 
 ## Future Retrieval
 

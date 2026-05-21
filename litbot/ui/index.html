@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LitBot</title>
+    <link rel="stylesheet" href="/ui/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Literary RAG</p>
+          <h1>LitBot</h1>
+        </div>
+        <div class="toolbar" aria-label="View and theme controls">
+          <div class="segmented" role="tablist" aria-label="View mode">
+            <button class="segment is-active" type="button" data-view="chat" role="tab">
+              Chat
+            </button>
+            <button class="segment" type="button" data-view="developer" role="tab">
+              Developer
+            </button>
+          </div>
+          <button class="icon-button" type="button" id="themeToggle" aria-label="Toggle dark mode">
+            <span class="theme-glyph" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="conversation-panel" aria-label="Chat conversation">
+          <div class="messages" id="messages" aria-live="polite">
+            <article class="message assistant">
+              <div class="bubble welcome-message">
+                Ask a question about the corpus, save a reading note, or ask to retrieve saved
+                notes.
+              </div>
+            </article>
+          </div>
+
+          <form class="composer" id="chatForm">
+            <div class="field-row">
+              <label>
+                <span>Work filter</span>
+                <input
+                  id="workFilter"
+                  name="work"
+                  autocomplete="off"
+                  placeholder="Frankenstein"
+                />
+              </label>
+              <label>
+                <span>Top K</span>
+                <input id="topK" name="top_k" type="number" min="1" max="50" placeholder="8" />
+              </label>
+            </div>
+            <label class="prompt-field">
+              <span>Message</span>
+              <textarea
+                id="question"
+                name="question"
+                rows="3"
+                required
+                placeholder="How does Victor describe the creature when it comes to life?"
+              ></textarea>
+            </label>
+            <div class="composer-actions">
+              <p class="status" id="status" role="status"></p>
+              <button type="submit" id="sendButton">Send</button>
+            </div>
+          </form>
+        </section>
+
+        <aside class="developer-panel" id="developerPanel" aria-label="Developer response details">
+          <div class="empty-state" id="developerEmpty">
+            Send a message to inspect response metadata, citations, retrieved context, and raw JSON.
+          </div>
+          <div class="inspector is-hidden" id="inspector"></div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="/ui/static/app.js" defer></script>
+  </body>
+</html>

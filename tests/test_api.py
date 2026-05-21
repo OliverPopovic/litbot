@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 
 from litbot.api.main import app
-from litbot.models import ChatResponse, RetrievedNote
+from litbot.models import ChatRequest, ChatResponse, RetrievedNote
 
 
 def test_health_endpoint_returns_ok() -> None:
@@ -14,6 +14,31 @@ def test_health_endpoint_returns_ok() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_ui_root_returns_html() -> None:
+    with TestClient(app) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert 'id="app"' in response.text
+    assert "/ui/static/app.js" in response.text
+    assert "/ui/static/styles.css" in response.text
+    assert "Developer" in response.text
+
+
+def test_ui_static_assets_are_served() -> None:
+    with TestClient(app) as client:
+        script = client.get("/ui/static/app.js")
+        styles = client.get("/ui/static/styles.css")
+
+    assert script.status_code == 200
+    assert "javascript" in script.headers["content-type"]
+    assert "fetch(\"/chat\"" in script.text
+    assert styles.status_code == 200
+    assert "text/css" in styles.headers["content-type"]
+    assert "[data-theme=\"dark\"]" in styles.text
+
+
 def test_chat_route_remains_registered() -> None:
     routes = {
         (route.path, tuple(sorted(route.methods or [])))
@@ -22,6 +47,25 @@ def test_chat_route_remains_registered() -> None:
     }
 
     assert ("/chat", ("POST",)) in routes
+
+
+def test_chat_request_accepts_camel_case_ui_note_context() -> None:
+    request = ChatRequest.model_validate(
+        {
+            "question": "Delete this",
+            "noteContext": {
+                "activeNoteId": "note-1",
+                "retrievedNoteIds": ["note-1"],
+            },
+            "pendingNoteActionId": "action-1",
+            "confirmNoteAction": True,
+        }
+    )
+
+    assert request.note_context.active_note_id == "note-1"
+    assert request.note_context.retrieved_note_ids == ["note-1"]
+    assert request.pending_note_action_id == "action-1"
+    assert request.confirm_note_action is True
 
 
 def test_chat_request_rejects_blank_question_before_runtime_services() -> None:

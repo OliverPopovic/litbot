@@ -52,3 +52,13 @@ def test_global_notes_migration_defines_storage_and_indexes() -> None:
     assert "notes_prompt_version_idx" in migration
     assert "notes_inferred_work_idx" in migration
     assert "note_chunks_chunk_id_idx" in migration
+
+
+def test_pending_note_actions_migration_defines_confirmation_storage() -> None:
+    migration = (Path("migrations") / "004_pending_note_actions.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS pending_note_actions" in migration
+    assert "expires_at  TIMESTAMPTZ NOT NULL" in migration
+    assert "consumed_at TIMESTAMPTZ" in migration
+    assert "pending_note_actions_expires_at_idx" in migration
+    assert "pending_note_actions_consumed_at_idx" in migration

@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Annotated, Any
@@ -15,11 +16,12 @@ from litbot.db import close_pool, get_connection
 from litbot.evaluation.golden import load_golden_questions, score_answers
 from litbot.evaluation.retrieval import load_retrieval_cases, result_to_dict, score_retrieval
 from litbot.ingestion.store import IngestionService
-from litbot.models import ChatRequest, ChatResponse, RetrievedChunk, RetrievedNote
+from litbot.models import ChatRequest, ChatResponse, NoteContext, RetrievedChunk, RetrievedNote
 from litbot.observability.logging import configure_logging
 from litbot.retrieval.service import RetrievalService
 
 app = typer.Typer(help="LitBot ingestion, serving, and evaluation commands.")
+CLI_STATE_ENV = "LITBOT_CLI_STATE_PATH"
 
 
 @app.callback()
@@ -105,11 +107,35 @@ def ask(
     """Ask a question against the configured corpus."""
 
     settings = get_settings()
+    note_context = _load_cli_note_context()
     try:
         with get_connection(settings) as conn:
-            response = handle_chat_request(conn, settings, ChatRequest(question=question))
+            response = handle_chat_request(
+                conn,
+                settings,
+                ChatRequest(question=question, note_context=note_context),
+            )
+            if (
+                not json_output
+                and response.note_operation_status == "pending_confirmation"
+                and response.pending_note_action_id
+            ):
+                _render_chat_response(response)
+                confirmed = typer.confirm("Proceed?", default=False)
+                response = handle_chat_request(
+                    conn,
+                    settings,
+                    ChatRequest(
+                        question="Confirm note action.",
+                        note_context=note_context,
+                        pending_note_action_id=response.pending_note_action_id,
+                        confirm_note_action=confirmed,
+                        cancel_note_action=not confirmed,
+                    ),
+                )
     finally:
         close_pool()
+    _save_cli_note_context(response)
     if json_output:
         typer.echo(response.model_dump_json(indent=2))
         return
@@ -177,6 +203,9 @@ def _success(title: str, **fields: Any) -> None:
 
 
 def _render_chat_response(response: ChatResponse) -> None:
+    if response.note_operation_status:
+        _render_note_operation_response(response)
+        return
     if response.note_status:
         _render_note_response(response)
         return
@@ -209,6 +238,50 @@ def _render_chat_response(response: ChatResponse) -> None:
         typer.secho("\nRetrieved Context", fg=typer.colors.MAGENTA, bold=True)
         for chunk in response.retrieved_chunks:
             _render_chunk(chunk)
+
+    typer.secho("\nRun", fg=typer.colors.CYAN, bold=True)
+    typer.echo(f"  Trace ID       {response.trace_id}")
+    typer.echo(f"  Prompt version {response.prompt_version}")
+
+
+def _render_note_operation_response(response: ChatResponse) -> None:
+    title = "Note Operation"
+    if response.note_operation:
+        title = f"Note {response.note_operation.replace('_', ' ').title()}"
+    color = (
+        typer.colors.GREEN
+        if response.note_operation_status in {"completed", "cancelled"}
+        else typer.colors.YELLOW
+    )
+    typer.secho(f"\n{title}", fg=color, bold=True)
+    typer.echo(_indent(response.answer.strip() or "No note operation details returned."))
+
+    if response.pending_note_action_id:
+        typer.secho("\nPending Action", fg=typer.colors.BLUE, bold=True)
+        typer.echo(f"  {response.pending_note_action_id}")
+
+    if response.target_note_ids:
+        typer.secho("\nTarget Notes", fg=typer.colors.BLUE, bold=True)
+        for note_id in response.target_note_ids:
+            typer.echo(f"  - {note_id}")
+
+    if response.note:
+        typer.secho("\nProposed Note", fg=typer.colors.BLUE, bold=True)
+        typer.echo(_indent(response.note))
+
+    if response.note_work:
+        typer.secho("\nWork", fg=typer.colors.BLUE, bold=True)
+        typer.echo(f"  {response.note_work}")
+
+    if response.note_chunk_ids:
+        typer.secho("\nSupporting Chunks", fg=typer.colors.MAGENTA, bold=True)
+        for chunk_id in response.note_chunk_ids:
+            typer.echo(f"  - {chunk_id}")
+
+    if response.unsupported:
+        typer.secho("\nUnsupported", fg=typer.colors.YELLOW, bold=True)
+        for item in response.unsupported:
+            typer.echo(f"  - {item}")
 
     typer.secho("\nRun", fg=typer.colors.CYAN, bold=True)
     typer.echo(f"  Trace ID       {response.trace_id}")
@@ -322,3 +395,59 @@ def _preview(text: str, limit: int = 260) -> str:
     if len(collapsed) <= limit:
         return collapsed
     return f"{collapsed[: limit - 1].rstrip()}..."
+
+
+def _cli_state_path() -> Path:
+    configured = os.environ.get(CLI_STATE_ENV)
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".litbot" / "state.json"
+
+
+def _load_cli_note_context() -> NoteContext | None:
+    path = _cli_state_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    context_payload = payload.get("note_context")
+    if not isinstance(context_payload, dict):
+        return None
+    try:
+        context = NoteContext.model_validate(context_payload)
+    except Exception:
+        return None
+    if not context.active_note_id and not context.retrieved_note_ids:
+        return None
+    return context
+
+
+def _save_cli_note_context(response: ChatResponse) -> None:
+    context = _context_from_response(response)
+    path = _cli_state_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_name(f"{path.name}.tmp")
+        tmp_path.write_text(
+            json.dumps({"note_context": context.model_dump()}, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(tmp_path, path)
+    except OSError:
+        return
+
+
+def _context_from_response(response: ChatResponse) -> NoteContext:
+    retrieved_ids = [note.note_id for note in response.retrieved_notes]
+    active_note_id = retrieved_ids[0] if len(retrieved_ids) == 1 else None
+    if response.note_id:
+        active_note_id = response.note_id
+        retrieved_ids = [response.note_id]
+    if response.note_operation_status == "completed" and response.note_operation in {
+        "delete",
+        "delete_all",
+    }:
+        return NoteContext()
+    return NoteContext(active_note_id=active_note_id, retrieved_note_ids=retrieved_ids)

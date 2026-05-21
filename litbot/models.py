@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
 class LitBotModel(BaseModel):
@@ -96,10 +96,37 @@ class RetrievedNote(LitBotModel):
     trigram_score: float | None = None
 
 
+class NoteContext(LitBotModel):
+    active_note_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("active_note_id", "activeNoteId"),
+    )
+    retrieved_note_ids: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("retrieved_note_ids", "retrievedNoteIds"),
+    )
+
+
 class ChatRequest(LitBotModel):
     question: str
     filters: dict[str, Any] = Field(default_factory=dict)
     top_k: int | None = Field(default=None, ge=1, le=50)
+    note_context: NoteContext | None = Field(
+        default=None,
+        validation_alias=AliasChoices("note_context", "noteContext"),
+    )
+    pending_note_action_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("pending_note_action_id", "pendingNoteActionId"),
+    )
+    confirm_note_action: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("confirm_note_action", "confirmNoteAction"),
+    )
+    cancel_note_action: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("cancel_note_action", "cancelNoteAction"),
+    )
 
     @field_validator("question")
     @classmethod
@@ -110,10 +137,18 @@ class ChatRequest(LitBotModel):
 
 
 class IntentClassification(LitBotModel):
-    intent: Literal["question", "note", "note_query"] = "question"
+    intent: Literal[
+        "question",
+        "note",
+        "note_query",
+        "note_edit",
+        "note_delete",
+        "note_delete_all",
+    ] = "question"
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     extracted_note_text: str | None = None
     extracted_note_query: str | None = None
+    extracted_note_target: str | None = None
     extracted_work: str | None = None
     note_query_mode: Literal["search", "list_all"] | None = None
     reason: str | None = None
@@ -148,7 +183,14 @@ class ChatResponse(LitBotModel):
     trace_id: str
     citation_map: list[dict[str, Any]] = Field(default_factory=list)
     unsupported: list[str] = Field(default_factory=list)
-    intent: Literal["question", "note", "note_query"] | None = None
+    intent: Literal[
+        "question",
+        "note",
+        "note_query",
+        "note_edit",
+        "note_delete",
+        "note_delete_all",
+    ] | None = None
     intent_confidence: float | None = None
     retrieved_notes: list[RetrievedNote] = Field(default_factory=list)
     note_query_status: Literal["found", "not_found"] | None = None
@@ -160,4 +202,15 @@ class ChatResponse(LitBotModel):
     note_work: str | None = None
     note_chunk_ids: list[str] | None = None
     note_rejection_reason: str | None = None
+    note_operation: Literal["edit", "delete", "delete_all"] | None = None
+    note_operation_status: Literal[
+        "pending_confirmation",
+        "completed",
+        "cancelled",
+        "not_found",
+        "ambiguous",
+        "rejected",
+    ] | None = None
+    pending_note_action_id: str | None = None
+    target_note_ids: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
