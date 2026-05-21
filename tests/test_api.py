@@ -34,6 +34,9 @@ def test_ui_static_assets_are_served() -> None:
     assert script.status_code == 200
     assert "javascript" in script.headers["content-type"]
     assert "fetch(\"/chat\"" in script.text
+    assert "mutationNeedsNoteContext" not in script.text
+    assert "const noteContext = buildNoteContext();" in script.text
+    assert 'response.note_query_status === "not_found"' in script.text
     assert styles.status_code == 200
     assert "text/css" in styles.headers["content-type"]
     assert "[data-theme=\"dark\"]" in styles.text

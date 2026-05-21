@@ -14,14 +14,14 @@ from litbot.models import (
 def test_question_intent_routes_to_rag_answer_flow() -> None:
     retrieval = FakeRetrievalService()
     generation = FakeGenerationService()
-    note = FakeNoteService()
+    note = FakeNoteWorkflow()
     orchestrator = ChatOrchestrator(
         conn=object(),
         settings=Settings(intent_confidence_threshold=0.65),
         intent_service=FakeIntentService(IntentClassification(intent="question", confidence=0.92)),
         retrieval_service=retrieval,
         generation_service=generation,
-        note_service=note,
+        note_workflow=note,
         note_retrieval_service=FakeNoteRetrievalService(),
         note_relevance_service=FakeNoteRelevanceService(),
     )
@@ -32,11 +32,11 @@ def test_question_intent_routes_to_rag_answer_flow() -> None:
     assert response.intent_confidence == 0.92
     assert retrieval.calls == ["What happens?"]
     assert generation.calls == [("What happens?", "trace-1")]
-    assert note.calls == []
+    assert note.save_calls == []
 
 
-def test_note_intent_routes_to_note_service() -> None:
-    note = FakeNoteService()
+def test_note_intent_routes_to_note_workflow() -> None:
+    note = FakeNoteWorkflow()
     orchestrator = ChatOrchestrator(
         conn=object(),
         settings=Settings(intent_confidence_threshold=0.65),
@@ -49,26 +49,26 @@ def test_note_intent_routes_to_note_service() -> None:
         ),
         retrieval_service=FakeRetrievalService(),
         generation_service=FakeGenerationService(),
-        note_service=note,
+        note_workflow=note,
     )
 
     response = orchestrator.handle(ChatRequest(question="Save this: Hamlet opens..."))
 
     assert response.note_status == "saved"
-    assert note.calls[0]["note_text"] == "Hamlet opens with uncertainty."
-    assert note.calls[0]["intent_confidence"] == 0.91
+    assert note.save_calls[0].note_text == "Hamlet opens with uncertainty."
+    assert note.save_calls[0].intent_confidence == 0.91
 
 
 def test_low_confidence_note_intent_falls_back_to_question_flow() -> None:
     retrieval = FakeRetrievalService()
-    note = FakeNoteService()
+    note = FakeNoteWorkflow()
     orchestrator = ChatOrchestrator(
         conn=object(),
         settings=Settings(intent_confidence_threshold=0.65),
         intent_service=FakeIntentService(IntentClassification(intent="note", confidence=0.4)),
         retrieval_service=retrieval,
         generation_service=FakeGenerationService(),
-        note_service=note,
+        note_workflow=note,
         note_retrieval_service=FakeNoteRetrievalService(),
         note_relevance_service=FakeNoteRelevanceService(),
     )
@@ -78,25 +78,11 @@ def test_low_confidence_note_intent_falls_back_to_question_flow() -> None:
     assert response.intent == "question"
     assert response.intent_confidence == 0.4
     assert retrieval.calls == ["Maybe save this?"]
-    assert note.calls == []
+    assert note.save_calls == []
 
 
-def test_note_query_intent_routes_to_note_retrieval() -> None:
-    note_retrieval = FakeNoteRetrievalService(
-        notes=[
-            RetrievedNote(
-                label="N1",
-                note_id="note-1",
-                rewritten_note="Hamlet begins in uncertainty.",
-                original_input="Save this.",
-                inferred_work="Hamlet",
-                matched_work="Hamlet",
-                created_at=datetime.now(UTC),
-                combined_score=1.0,
-                reason="test",
-            )
-        ]
-    )
+def test_note_query_intent_routes_to_note_workflow() -> None:
+    note = FakeNoteWorkflow()
     orchestrator = ChatOrchestrator(
         conn=object(),
         settings=Settings(intent_confidence_threshold=0.65),
@@ -111,8 +97,8 @@ def test_note_query_intent_routes_to_note_retrieval() -> None:
         ),
         retrieval_service=FakeRetrievalService(),
         generation_service=FakeGenerationService(),
-        note_service=FakeNoteService(),
-        note_retrieval_service=note_retrieval,
+        note_workflow=note,
+        note_retrieval_service=FakeNoteRetrievalService(),
         note_relevance_service=FakeNoteRelevanceService(),
     )
 
@@ -121,11 +107,12 @@ def test_note_query_intent_routes_to_note_retrieval() -> None:
     assert response.intent == "note_query"
     assert response.note_query_status == "found"
     assert response.retrieved_notes[0].rewritten_note == "Hamlet begins in uncertainty."
-    assert note_retrieval.search_calls[0]["exact_work"] == "Hamlet"
+    assert note.query_calls[0].exact_work == "Hamlet"
+    assert note.query_calls[0].query == "Hamlet"
 
 
 def test_note_delete_intent_routes_to_preview_with_context() -> None:
-    note = FakeNoteService()
+    note = FakeNoteWorkflow()
     orchestrator = ChatOrchestrator(
         conn=object(),
         settings=Settings(intent_confidence_threshold=0.65),
@@ -134,7 +121,7 @@ def test_note_delete_intent_routes_to_preview_with_context() -> None:
         ),
         retrieval_service=FakeRetrievalService(),
         generation_service=FakeGenerationService(),
-        note_service=note,
+        note_workflow=note,
         note_retrieval_service=FakeNoteRetrievalService(),
         note_relevance_service=FakeNoteRelevanceService(),
     )
@@ -149,11 +136,11 @@ def test_note_delete_intent_routes_to_preview_with_context() -> None:
 
     assert response.note_operation == "delete"
     assert response.note_operation_status == "pending_confirmation"
-    assert note.delete_calls[0]["note_context"].active_note_id == "note-1"
+    assert note.delete_calls[0].note_context.active_note_id == "note-1"
 
 
 def test_note_delete_explicit_uuid_target_is_parsed_from_question() -> None:
-    note = FakeNoteService()
+    note = FakeNoteWorkflow()
     note_id = "123e4567-e89b-12d3-a456-426614174000"
     orchestrator = ChatOrchestrator(
         conn=object(),
@@ -163,18 +150,18 @@ def test_note_delete_explicit_uuid_target_is_parsed_from_question() -> None:
         ),
         retrieval_service=FakeRetrievalService(),
         generation_service=FakeGenerationService(),
-        note_service=note,
+        note_workflow=note,
         note_retrieval_service=FakeNoteRetrievalService(),
         note_relevance_service=FakeNoteRelevanceService(),
     )
 
     orchestrator.handle(ChatRequest(question=f"Delete note {note_id}"), trace_id="trace-1")
 
-    assert note.delete_calls[0]["target_reference"] == note_id
+    assert note.delete_calls[0].target_reference == note_id
 
 
 def test_pending_confirmation_bypasses_intent_classifier() -> None:
-    note = FakeNoteService()
+    note = FakeNoteWorkflow()
     intent = FakeIntentService(IntentClassification(intent="question", confidence=0.1))
     orchestrator = ChatOrchestrator(
         conn=object(),
@@ -182,7 +169,7 @@ def test_pending_confirmation_bypasses_intent_classifier() -> None:
         intent_service=intent,
         retrieval_service=FakeRetrievalService(),
         generation_service=FakeGenerationService(),
-        note_service=note,
+        note_workflow=note,
         note_retrieval_service=FakeNoteRetrievalService(),
         note_relevance_service=FakeNoteRelevanceService(),
     )
@@ -197,7 +184,9 @@ def test_pending_confirmation_bypasses_intent_classifier() -> None:
     )
 
     assert response.note_operation_status == "completed"
-    assert note.confirm_calls == [("action-1", "trace-1")]
+    assert [(call.action_id, call.trace_id) for call in note.confirm_calls] == [
+        ("action-1", "trace-1")
+    ]
 
 
 def test_question_supplement_skips_relevance_filter_without_note_candidates() -> None:
@@ -208,7 +197,7 @@ def test_question_supplement_skips_relevance_filter_without_note_candidates() ->
         intent_service=FakeIntentService(IntentClassification(intent="question", confidence=0.92)),
         retrieval_service=FakeRetrievalService(),
         generation_service=FakeGenerationService(),
-        note_service=FakeNoteService(),
+        note_workflow=FakeNoteWorkflow(),
         note_retrieval_service=FakeNoteRetrievalService(notes=[]),
         note_relevance_service=relevance,
     )
@@ -265,61 +254,88 @@ class FakeGenerationService:
         )
 
 
-class FakeNoteService:
+class FakeNoteWorkflow:
     def __init__(self) -> None:
-        self.calls: list[dict] = []
-        self.delete_calls: list[dict] = []
-        self.confirm_calls: list[tuple[str, str]] = []
+        self.save_calls = []
+        self.query_calls = []
+        self.delete_calls = []
+        self.confirm_calls = []
 
-    def process(self, **kwargs) -> ChatResponse:
-        self.calls.append(kwargs)
+    def save(self, command) -> ChatResponse:
+        self.save_calls.append(command)
         return ChatResponse(
             answer="Saved note.",
             citations=[],
             retrieved_chunks=[],
             prompt_version="note-test",
-            trace_id=kwargs["trace_id"],
+            trace_id=command.trace_id,
             intent="note",
-            intent_confidence=kwargs["intent_confidence"],
+            intent_confidence=command.intent_confidence,
             note_status="saved",
             note="Saved note.",
-            original_note=kwargs["original_input"],
+            original_note=command.original_input,
             note_work="Hamlet",
             note_chunk_ids=["chunk-1"],
         )
 
-    def preview_delete(self, **kwargs) -> ChatResponse:
-        self.delete_calls.append(kwargs)
+    def query(self, command) -> ChatResponse:
+        self.query_calls.append(command)
+        note = RetrievedNote(
+            label="N1",
+            note_id="note-1",
+            rewritten_note="Hamlet begins in uncertainty.",
+            original_input="Save this.",
+            inferred_work="Hamlet",
+            matched_work="Hamlet",
+            created_at=datetime.now(UTC),
+            combined_score=1.0,
+            reason="test",
+        )
+        return ChatResponse(
+            answer="I found these saved notes:\n- [N1] Hamlet: Hamlet begins in uncertainty.",
+            citations=[],
+            retrieved_chunks=[],
+            retrieved_notes=[note],
+            prompt_version="note-test",
+            trace_id=command.trace_id,
+            intent="note_query",
+            intent_confidence=command.intent_confidence,
+            note_query_status="found",
+            note_query_has_more=False,
+        )
+
+    def preview_delete(self, command) -> ChatResponse:
+        self.delete_calls.append(command)
         return ChatResponse(
             answer="Please confirm deleting this note.",
             citations=[],
             retrieved_chunks=[],
             prompt_version="note-test",
-            trace_id=kwargs["trace_id"],
+            trace_id=command.trace_id,
             intent="note_delete",
-            intent_confidence=kwargs["intent_confidence"],
+            intent_confidence=command.intent_confidence,
             note_operation="delete",
             note_operation_status="pending_confirmation",
             pending_note_action_id="action-1",
             target_note_ids=["note-1"],
         )
 
-    def confirm_pending_action(self, action_id, *, trace_id) -> ChatResponse:
-        self.confirm_calls.append((action_id, trace_id))
+    def confirm(self, command) -> ChatResponse:
+        self.confirm_calls.append(command)
         return ChatResponse(
             answer="Deleted 1 saved note.",
             citations=[],
             retrieved_chunks=[],
             prompt_version="note-test",
-            trace_id=trace_id,
+            trace_id=command.trace_id,
             note_operation="delete",
             note_operation_status="completed",
-            pending_note_action_id=action_id,
+            pending_note_action_id=command.action_id,
             target_note_ids=["note-1"],
         )
 
-    def cancel_pending_action(self, action_id, *, trace_id) -> ChatResponse:
-        return self.confirm_pending_action(action_id, trace_id=trace_id)
+    def cancel(self, command) -> ChatResponse:
+        return self.confirm(command)
 
 
 class FakeNoteRetrievalResult:

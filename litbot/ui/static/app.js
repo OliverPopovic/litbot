@@ -90,7 +90,7 @@ function buildRequest(question) {
   if (Number.isInteger(topK)) {
     request.top_k = topK;
   }
-  const noteContext = mutationNeedsNoteContext(question) ? buildNoteContext() : null;
+  const noteContext = buildNoteContext();
   if (noteContext) {
     request.note_context = noteContext;
   }
@@ -105,11 +105,6 @@ function buildNoteContext() {
     active_note_id: state.activeNoteId,
     retrieved_note_ids: state.retrievedNoteIds,
   };
-}
-
-function mutationNeedsNoteContext(question) {
-  const normalized = question.toLowerCase();
-  return /\b(edit|change|update|delete|erase|remove)\b/.test(normalized);
 }
 
 function updateView() {
@@ -416,6 +411,9 @@ function updateNoteContext(response) {
   if (noteIds.length) {
     state.retrievedNoteIds = noteIds;
     state.activeNoteId = noteIds.length === 1 ? noteIds[0] : null;
+  } else if (response.note_query_status === "not_found") {
+    state.retrievedNoteIds = [];
+    state.activeNoteId = null;
   }
   if (response.note_id) {
     state.activeNoteId = response.note_id;

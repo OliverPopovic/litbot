@@ -14,6 +14,13 @@ from litbot.config import get_settings
 from litbot.corpus import fetch_public_domain_corpus
 from litbot.db import close_pool, get_connection
 from litbot.evaluation.golden import load_golden_questions, score_answers
+from litbot.evaluation.notes import (
+    load_note_cases,
+    run_note_cases,
+)
+from litbot.evaluation.notes import (
+    result_to_dict as note_result_to_dict,
+)
 from litbot.evaluation.retrieval import load_retrieval_cases, result_to_dict, score_retrieval
 from litbot.ingestion.store import IngestionService
 from litbot.models import ChatRequest, ChatResponse, NoteContext, RetrievedChunk, RetrievedNote
@@ -194,6 +201,37 @@ def evaluate_retrieval(
         typer.echo(json.dumps(payload, indent=2))
         return
     _render_metrics("Retrieval evaluation", payload)
+
+
+@app.command("eval-notes")
+def evaluate_notes(
+    cases_jsonl: Annotated[Path, typer.Argument(help="JSONL file of note golden cases.")],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write machine-readable JSON."),
+    ] = False,
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Use real model, embedding, and retrieval services."),
+    ] = False,
+) -> None:
+    """Score note workflow behavior against golden step-sequence cases."""
+
+    configure_logging(stream=sys.stderr, renderer="console")
+    cases = load_note_cases(cases_jsonl)
+    settings = get_settings()
+    try:
+        with get_connection(settings) as conn:
+            result = run_note_cases(cases, conn, settings, live=live)
+    finally:
+        close_pool()
+    payload = note_result_to_dict(result)
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        _render_metrics("Note evaluation", payload)
+    if result.failed:
+        raise typer.Exit(1)
 
 
 def _success(title: str, **fields: Any) -> None:

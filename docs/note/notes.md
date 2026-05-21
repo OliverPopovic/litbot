@@ -18,8 +18,8 @@ the rewrite step to infer the work from corpus evidence.
 
 ## Grounding And Rewriting
 
-`NoteService` retrieves candidate chunks with the existing hybrid retriever, then asks the LLM for a
-structured `NoteProcessingPayload`:
+`NoteWorkflow` delegates note grounding to `NoteGroundingService`, which retrieves candidate chunks
+with the existing hybrid retriever, then asks the LLM for a structured `NoteProcessingPayload`:
 
 - `should_save`: whether the note is grounded enough to store.
 - `rewritten_note`: the concise factual note to store and embed.
@@ -28,7 +28,7 @@ structured `NoteProcessingPayload`:
 - `citation_map`: model-provided claim-to-source bookkeeping.
 - `rejection_reason`: a user-facing explanation when the note should not be saved.
 
-The service rejects a note if retrieval returns no chunks, the rewritten note is blank,
+The grounding service rejects a note if retrieval returns no chunks, the rewritten note is blank,
 `should_save=false`, any selected chunk ID was not retrieved, no selected chunks remain, or no work
 can be inferred. Blank rejection reasons use the default: “The note could not be grounded in the
 corpus.”
@@ -56,9 +56,10 @@ Note insertion and chunk-link insertion run in a single database transaction. If
 insert fails, the note row is rolled back with it. This prevents saved notes from existing without
 their grounding evidence.
 
-Confirmed note mutations also run transactionally. Confirmation locks the pending action with
-`FOR UPDATE`, rejects missing, expired, or already-consumed actions, applies the edit or hard delete,
-and sets `consumed_at` before commit so retries cannot execute the same action twice.
+Confirmed note mutations also run transactionally. `PendingNoteActionRepository` locks the pending
+action with `SELECT ... FOR UPDATE`, rejects missing, expired, or already-consumed actions, applies
+the edit or hard delete, and sets `consumed_at` before commit so retries cannot execute the same
+action twice.
 
 ## Edit And Delete
 

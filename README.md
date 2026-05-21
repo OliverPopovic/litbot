@@ -223,6 +223,15 @@ Score retrieval directly against the golden retrieval fixture after reindexing t
 uv run litbot eval-retrieval tests/fixtures/retrieval_golden.jsonl
 ```
 
+Score the note workflow contract against the deterministic golden fixture:
+
+```bash
+uv run litbot eval-notes tests/fixtures/note_golden.jsonl
+```
+
+Use `--live` to run the same note cases with real model and retrieval services; this is opt-in
+because it can be slower, cost-bearing, and model-sensitive.
+
 ## Configuration
 
 Configuration is loaded from environment variables, with `LITBOT_` prefixes where applicable.
@@ -278,16 +287,16 @@ Configuration is loaded from environment variables, with `LITBOT_` prefixes wher
 2. `IntentService` classifies the input as `question`, `note`, `note_query`, `note_edit`,
    `note_delete`, or `note_delete_all`.
 3. Note classifications below `LITBOT_INTENT_CONFIDENCE_THRESHOLD` fall back to question answering.
-4. For note intent, `NoteService` retrieves evidence using the extracted note text and any supplied
-   work filter.
+4. For note intent, `NoteWorkflow` delegates to `NoteGroundingService` to retrieve evidence using
+   the extracted note text and any supplied work filter.
 5. The note prompt rewrites the note, infers a work from corpus metadata, and returns selected
    supporting chunk IDs.
 6. LitBot saves only nonblank rewritten notes with at least one selected retrieved chunk and an
    inferred corpus work.
 7. The rewritten note embedding, note metadata, and `note_chunks` links are inserted in one
    transaction, so failed chunk-link inserts roll back the note row too.
-8. Edit and delete requests create a pending action first; confirmation locks and consumes that
-   action in the same transaction as the edit or hard delete.
+8. Edit and delete requests create a pending action first; confirmation locks it with
+   `SELECT ... FOR UPDATE` and consumes it in the same transaction as the edit or hard delete.
 
 Explicit `note_query` requests return stored note text directly, with linked corpus chunks when
 available. Ordinary question answering can append strictly relevant saved notes after the cited

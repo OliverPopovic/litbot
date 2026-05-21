@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typer.testing import CliRunner
 
 from litbot import cli
+from litbot.evaluation.notes import NoteCaseResult, NoteEvalResult
 from litbot.evaluation.retrieval import RetrievalCase
 from litbot.models import ChatResponse, Citation, RetrievedChunk, RetrievedNote
 
@@ -43,6 +44,71 @@ def test_eval_retrieval_cli_scores_with_mocked_retriever(monkeypatch) -> None:
     assert log_renderers[-1] == "console"
     assert '"total": 1' in result.output
     assert '"hit_at_1": 1' in result.output
+
+
+def test_eval_notes_cli_scores_with_mocked_runner(monkeypatch) -> None:
+    runner = CliRunner()
+    calls = []
+    note_result = NoteEvalResult(
+        total=1,
+        passed=1,
+        failed=0,
+        case_results=[NoteCaseResult(case_id="case-1")],
+    )
+
+    monkeypatch.setattr(cli, "load_note_cases", lambda path: ["case"])
+    monkeypatch.setattr(cli, "get_settings", lambda: object())
+    monkeypatch.setattr(cli, "get_connection", lambda settings: _fake_connection())
+    monkeypatch.setattr(cli, "close_pool", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "run_note_cases",
+        lambda cases, conn, settings, live=False: calls.append(live) or note_result,
+    )
+    monkeypatch.setattr(
+        cli,
+        "configure_logging",
+        lambda stream=sys.stderr, renderer="console": None,
+    )
+
+    result = runner.invoke(cli.app, ["eval-notes", "cases.jsonl", "--json"])
+
+    assert result.exit_code == 0
+    assert calls == [False]
+    assert '"total": 1' in result.output
+    assert '"failed": 0' in result.output
+
+
+def test_eval_notes_live_mode_is_explicit_and_fails_nonzero(monkeypatch) -> None:
+    runner = CliRunner()
+    calls = []
+    note_result = NoteEvalResult(
+        total=1,
+        passed=0,
+        failed=1,
+        case_results=[NoteCaseResult(case_id="case-1", failures=[])],
+    )
+
+    monkeypatch.setattr(cli, "load_note_cases", lambda path: ["case"])
+    monkeypatch.setattr(cli, "get_settings", lambda: object())
+    monkeypatch.setattr(cli, "get_connection", lambda settings: _fake_connection())
+    monkeypatch.setattr(cli, "close_pool", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "run_note_cases",
+        lambda cases, conn, settings, live=False: calls.append(live) or note_result,
+    )
+    monkeypatch.setattr(
+        cli,
+        "configure_logging",
+        lambda stream=sys.stderr, renderer="console": None,
+    )
+
+    result = runner.invoke(cli.app, ["eval-notes", "cases.jsonl", "--json", "--live"])
+
+    assert result.exit_code == 1
+    assert calls == [True]
+    assert '"failed": 1' in result.output
 
 
 def test_ask_cli_renders_readable_answer(monkeypatch) -> None:
@@ -232,6 +298,44 @@ def test_cli_state_writes_note_context_atomically(monkeypatch, tmp_path) -> None
     assert payload["note_context"]["active_note_id"] == "note-1"
     assert payload["note_context"]["retrieved_note_ids"] == ["note-1"]
     assert not state_path.with_name("state.json.tmp").exists()
+
+
+def test_cli_state_clears_context_after_delete_completion(monkeypatch, tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv(cli.CLI_STATE_ENV, str(state_path))
+    response = ChatResponse(
+        answer="Deleted 1 saved note.",
+        citations=[],
+        retrieved_chunks=[],
+        prompt_version="note-test",
+        trace_id="trace-1",
+        note_operation="delete",
+        note_operation_status="completed",
+        target_note_ids=["note-1"],
+    )
+
+    cli._save_cli_note_context(response)
+
+    assert cli._load_cli_note_context() is None
+
+
+def test_cli_state_clears_context_after_empty_note_query(monkeypatch, tmp_path) -> None:
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv(cli.CLI_STATE_ENV, str(state_path))
+    response = ChatResponse(
+        answer="I did not find any saved notes matching that request.",
+        citations=[],
+        retrieved_chunks=[],
+        prompt_version="note-test",
+        trace_id="trace-1",
+        intent="note_query",
+        note_query_status="not_found",
+        note_query_has_more=False,
+    )
+
+    cli._save_cli_note_context(response)
+
+    assert cli._load_cli_note_context() is None
 
 
 class FakeRetrievalService:

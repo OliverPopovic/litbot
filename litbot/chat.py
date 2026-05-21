@@ -1,5 +1,5 @@
-import uuid
 import re
+import uuid
 
 import structlog
 from psycopg import Connection
@@ -11,10 +11,19 @@ from litbot.models import (
     ChatRequest,
     ChatResponse,
     IntentClassification,
-    RetrievedChunk,
-    RetrievedNote,
 )
-from litbot.notes import NoteRelevanceService, NoteRetrievalService, NoteService
+from litbot.notes import (
+    CancelPendingNoteActionCommand,
+    ConfirmPendingNoteActionCommand,
+    NoteRelevanceService,
+    NoteRetrievalService,
+    NoteWorkflow,
+    PreviewDeleteAllNotesCommand,
+    PreviewDeleteNoteCommand,
+    PreviewEditNoteCommand,
+    QueryNotesCommand,
+    SaveNoteCommand,
+)
 from litbot.retrieval.service import RetrievalService
 
 logger = structlog.get_logger(__name__)
@@ -35,7 +44,7 @@ class ChatOrchestrator:
         intent_service: IntentService | None = None,
         retrieval_service: RetrievalService | None = None,
         generation_service: GenerationService | None = None,
-        note_service: NoteService | None = None,
+        note_workflow: NoteWorkflow | None = None,
         note_retrieval_service: NoteRetrievalService | None = None,
         note_relevance_service: NoteRelevanceService | None = None,
     ) -> None:
@@ -44,28 +53,27 @@ class ChatOrchestrator:
         self.intent_service = intent_service or IntentService(self.settings)
         self.retrieval_service = retrieval_service or RetrievalService(conn, self.settings)
         self.generation_service = generation_service or GenerationService(self.settings)
-        self.note_service = note_service or NoteService(
-            conn,
-            self.settings,
-            retrieval_service=self.retrieval_service,
-        )
         self.note_retrieval_service = note_retrieval_service or NoteRetrievalService(
             conn,
             self.settings,
         )
         self.note_relevance_service = note_relevance_service or NoteRelevanceService(self.settings)
+        self.note_workflow = note_workflow or NoteWorkflow(
+            conn,
+            self.settings,
+            retrieval_service=self.retrieval_service,
+            note_retrieval_service=self.note_retrieval_service,
+        )
 
     def handle(self, request: ChatRequest, trace_id: str | None = None) -> ChatResponse:
         trace_id = trace_id or str(uuid.uuid4())
         if request.confirm_note_action:
-            return self.note_service.confirm_pending_action(
-                request.pending_note_action_id,
-                trace_id=trace_id,
+            return self.note_workflow.confirm(
+                ConfirmPendingNoteActionCommand(request.pending_note_action_id, trace_id)
             )
         if request.cancel_note_action:
-            return self.note_service.cancel_pending_action(
-                request.pending_note_action_id,
-                trace_id=trace_id,
+            return self.note_workflow.cancel(
+                CancelPendingNoteActionCommand(request.pending_note_action_id, trace_id)
             )
 
         classification = self.intent_service.classify(request.question)
@@ -81,39 +89,57 @@ class ChatOrchestrator:
             return self._answer_question(request, trace_id, classification)
 
         if classification.intent == "note_query":
-            return self._retrieve_notes(request, trace_id, classification)
+            return self.note_workflow.query(
+                QueryNotesCommand(
+                    query=(classification.extracted_note_query or request.question).strip(),
+                    filters=request.filters,
+                    top_k=request.top_k,
+                    exact_work=classification.extracted_work,
+                    mode=classification.note_query_mode,
+                    trace_id=trace_id,
+                    intent_confidence=classification.confidence,
+                )
+            )
         if classification.intent == "note_edit":
-            return self.note_service.preview_edit(
+            return self.note_workflow.preview_edit(
+                PreviewEditNoteCommand(
+                    original_input=request.question,
+                    note_text=classification.extracted_note_text,
+                    target_reference=_target_reference(request.question, classification),
+                    note_context=request.note_context,
+                    filters=request.filters,
+                    top_k=request.top_k,
+                    trace_id=trace_id,
+                    intent_confidence=classification.confidence,
+                )
+            )
+        if classification.intent == "note_delete":
+            return self.note_workflow.preview_delete(
+                PreviewDeleteNoteCommand(
+                    target_reference=_target_reference(request.question, classification),
+                    note_context=request.note_context,
+                    trace_id=trace_id,
+                    intent_confidence=classification.confidence,
+                )
+            )
+        if classification.intent == "note_delete_all":
+            return self.note_workflow.preview_delete_all(
+                PreviewDeleteAllNotesCommand(
+                    trace_id=trace_id,
+                    intent_confidence=classification.confidence,
+                )
+            )
+
+        note_text = (classification.extracted_note_text or request.question).strip()
+        return self.note_workflow.save(
+            SaveNoteCommand(
                 original_input=request.question,
-                note_text=classification.extracted_note_text,
-                target_reference=_target_reference(request.question, classification),
-                note_context=request.note_context,
+                note_text=note_text,
                 filters=request.filters,
                 top_k=request.top_k,
                 trace_id=trace_id,
                 intent_confidence=classification.confidence,
             )
-        if classification.intent == "note_delete":
-            return self.note_service.preview_delete(
-                target_reference=_target_reference(request.question, classification),
-                note_context=request.note_context,
-                trace_id=trace_id,
-                intent_confidence=classification.confidence,
-            )
-        if classification.intent == "note_delete_all":
-            return self.note_service.preview_delete_all(
-                trace_id=trace_id,
-                intent_confidence=classification.confidence,
-            )
-
-        note_text = (classification.extracted_note_text or request.question).strip()
-        return self.note_service.process(
-            original_input=request.question,
-            note_text=note_text,
-            filters=request.filters,
-            top_k=request.top_k,
-            trace_id=trace_id,
-            intent_confidence=classification.confidence,
         )
 
     def _answer_question(
@@ -158,51 +184,6 @@ class ChatOrchestrator:
             }
         )
 
-    def _retrieve_notes(
-        self,
-        request: ChatRequest,
-        trace_id: str,
-        classification: IntentClassification,
-    ) -> ChatResponse:
-        query = (classification.extracted_note_query or request.question).strip()
-        exact_work = classification.extracted_work or request.filters.get("work")
-        if classification.note_query_mode == "list_all":
-            result = self.note_retrieval_service.list_all(
-                filters=request.filters,
-                top_k=request.top_k,
-                exact_work=exact_work if isinstance(exact_work, str) else None,
-            )
-        else:
-            result = self.note_retrieval_service.search(
-                query,
-                filters=request.filters,
-                top_k=request.top_k,
-                exact_work=exact_work if isinstance(exact_work, str) else None,
-            )
-        retrieved_chunks = _unique_supporting_chunks(result.notes)
-        logger.info(
-            "chat_note_query_routed",
-            trace_id=trace_id,
-            note_count=len(result.notes),
-            has_more=result.has_more,
-            match_strategy=result.match_strategy,
-            confidence=classification.confidence,
-        )
-        status = "found" if result.notes else "not_found"
-        return ChatResponse(
-            answer=_note_query_answer(result.notes, has_more=result.has_more),
-            citations=[],
-            retrieved_chunks=retrieved_chunks,
-            retrieved_notes=result.notes,
-            prompt_version=self.settings.note_prompt_version,
-            trace_id=trace_id,
-            intent="note_query",
-            intent_confidence=classification.confidence,
-            note_query_status=status,
-            note_query_has_more=result.has_more,
-        )
-
-
 def handle_chat_request(
     conn: Connection,
     settings: Settings,
@@ -229,26 +210,3 @@ def _target_reference(question: str, classification: IntentClassification) -> st
     if classification.extracted_note_target:
         return classification.extracted_note_target
     return None
-
-
-def _unique_supporting_chunks(notes: list[RetrievedNote]) -> list[RetrievedChunk]:
-    chunks: list[RetrievedChunk] = []
-    seen: set[str] = set()
-    for note in notes:
-        for chunk in note.supporting_chunks:
-            if chunk.chunk_id in seen:
-                continue
-            seen.add(chunk.chunk_id)
-            chunks.append(chunk)
-    return chunks
-
-
-def _note_query_answer(notes: list[RetrievedNote], *, has_more: bool) -> str:
-    if not notes:
-        return "I did not find any saved notes matching that request."
-    lines = ["I found these saved notes:"]
-    for note in notes:
-        lines.append(f"- [{note.label}] {note.inferred_work}: {note.rewritten_note}")
-    if has_more:
-        lines.append("This is a capped preview; more saved notes exist.")
-    return "\n".join(lines)
